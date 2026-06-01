@@ -43,3 +43,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local-only planning / session docs — never commit these
+CLAUDE.md
+AGENTS.md
+Phase-*-Prompt.md
+PHASE-*-COMPLETE.md
+PHASE-*-VALIDATION-LOG.md
+Rakshana-PRD.md

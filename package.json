@@ -4,14 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "build": "prisma generate && prisma migrate deploy && next build",
+    "start": "next start -p ${PORT:-3000}",
+    "postinstall": "prisma generate",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:prod": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force"
   },
@@ -44,6 +46,7 @@
     "pdfkit": "^0.18.0",
     "pino": "^10.3.1",
     "prisma": "^6.19.3",
+    "tsx": "^4.22.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hook-form": "^7.76.0",
@@ -72,7 +75,6 @@
     "eslint-config-next": "16.2.6",
     "happy-dom": "^20.9.0",
     "tailwindcss": "^4",
-    "tsx": "^4.22.3",
     "typescript": "^5",
     "vitest": "^4.1.7"
   }

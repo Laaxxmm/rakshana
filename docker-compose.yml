@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rakshana-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rakshana
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rakshana_dev}
+      POSTGRES_DB: rakshana
+    ports:
+      - "5432:5432"
+    volumes:
+      - rakshana_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rakshana -d rakshana"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  rakshana_pg:

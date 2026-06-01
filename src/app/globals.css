@@ -1,26 +1,239 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+ * Rakshana design tokens
+ * Source of truth: DESIGN-TOKENS.md
+ * Tokens are mapped onto shadcn semantic slots so every shadcn
+ * primitive automatically inherits the Rakshana palette.
+ * ========================================================== */
 
 @theme inline {
+  /* Type */
+  --font-sans: var(--font-sans-tight);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-display);
+
+  /* Semantic colour aliases (shadcn) */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Rakshana-specific colour tokens (use these in custom UI) */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-border-strong: var(--border-strong);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  /* Canvas — warm paper */
+  --canvas: #FAF8F3;
+  --surface: #FFFFFF;
+  --surface-sunken: #F4F1EA;
+
+  /* Ink */
+  --ink: #1A1814;
+  --ink-muted: #5C5852;
+  --ink-subtle: #8A857E;
+
+  /* Brand */
+  --primary: #1A6E5A;
+  --primary-hover: #155A4A;
+  --primary-soft: #E8F0ED;
+
+  /* Accent — saffron, used sparingly */
+  --accent: #C26B2A;
+  --accent-soft: #FBF1E5;
+
+  /* Semantic */
+  --success: #2F7D5E;
+  --warning: #B8761E;
+  --danger:  #B5443A;
+  --info:    #2F5D7D;
+
+  /* Borders */
+  --border: #E8E3D9;
+  --border-strong: #D4CEC2;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius:    6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(26, 24, 20, 0.04);
+  --shadow-md: 0 4px 12px rgba(26, 24, 20, 0.06);
+  --shadow-lg: 0 12px 32px rgba(26, 24, 20, 0.08);
+
+  /* ----- shadcn semantic slots mapped to Rakshana ----- */
+  --background:           var(--canvas);
+  --foreground:           var(--ink);
+  --card:                 var(--surface);
+  --card-foreground:      var(--ink);
+  --popover:              var(--surface);
+  --popover-foreground:   var(--ink);
+  --primary-foreground:   #FAF8F3;
+  --secondary:            var(--surface-sunken);
+  --secondary-foreground: var(--ink);
+  --muted:                var(--surface-sunken);
+  --muted-foreground:     var(--ink-muted);
+  --accent-foreground:    #FAF8F3;
+  --destructive:          var(--danger);
+  --input:                var(--border);
+  --ring:                 var(--primary);
+  --chart-1:              var(--primary);
+  --chart-2:              var(--accent);
+  --chart-3:              var(--info);
+  --chart-4:              var(--success);
+  --chart-5:              var(--warning);
+  --sidebar:                  var(--surface-sunken);
+  --sidebar-foreground:       var(--ink);
+  --sidebar-primary:          var(--primary);
+  --sidebar-primary-foreground: #FAF8F3;
+  --sidebar-accent:           var(--primary-soft);
+  --sidebar-accent-foreground: var(--primary);
+  --sidebar-border:           var(--border);
+  --sidebar-ring:             var(--primary);
+}
+
+.dark {
+  --canvas: #13110E;
+  --surface: #1B1814;
+  --surface-sunken: #14110D;
+  --ink: #F2EDE3;
+  --ink-muted: #A8A199;
+  --ink-subtle: #6B665E;
+  --primary: #2F9576;
+  --primary-hover: #38AB89;
+  --primary-soft: #1B2D27;
+  --accent: #D88547;
+  --accent-soft: #2A1F14;
+  --success: #4FB081;
+  --warning: #D49945;
+  --danger:  #D86A5E;
+  --info:    #5085AD;
+  --border: #2A2620;
+  --border-strong: #3A352C;
+
+  --background:           var(--canvas);
+  --foreground:           var(--ink);
+  --card:                 var(--surface);
+  --card-foreground:      var(--ink);
+  --popover:              var(--surface);
+  --popover-foreground:   var(--ink);
+  --primary-foreground:   var(--ink);
+  --secondary:            var(--surface-sunken);
+  --secondary-foreground: var(--ink);
+  --muted:                var(--surface-sunken);
+  --muted-foreground:     var(--ink-muted);
+  --accent-foreground:    var(--ink);
+  --destructive:          var(--danger);
+  --input:                var(--border);
+  --ring:                 var(--primary);
+  --chart-1:              var(--primary);
+  --chart-2:              var(--accent);
+  --chart-3:              var(--info);
+  --chart-4:              var(--success);
+  --chart-5:              var(--warning);
+  --sidebar:                  var(--surface-sunken);
+  --sidebar-foreground:       var(--ink);
+  --sidebar-primary:          var(--primary);
+  --sidebar-primary-foreground: var(--ink);
+  --sidebar-accent:           var(--primary-soft);
+  --sidebar-accent-foreground: var(--primary);
+  --sidebar-border:           var(--border);
+  --sidebar-ring:             var(--primary);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  html {
+    @apply font-sans;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    min-height: 100dvh;
+    position: relative;
+  }
+
+  /* Paper grain — fixed, behind everything, very subtle */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    z-index: 0;
+  }
+
+  body > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  h1, h2 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  /* Money / tabular numbers — JetBrains Mono with tabular-nums */
+  .font-mono,
+  [data-numeric] {
+    font-feature-settings: "tnum", "lnum";
+    font-variant-numeric: tabular-nums lining-nums;
+  }
 }

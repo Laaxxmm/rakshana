@@ -1,0 +1,1769 @@
+// =====================================================================
+// Rakshana — Trust Management Platform
+// Prisma Schema · v1 (Draft, pre-build)
+//
+// Conventions
+// - Every domain table has organisationId (multi-tenant safe from day one)
+// - Money is Decimal(18,2)
+// - Dates are DateTime (UTC); UI formats to IST
+// - Soft-delete via status flags or `deletedAt`; never hard delete financials
+// - Audit trail via AuditLog (append-only)
+// - cuid() for IDs (URL-safe, sortable enough, collision-resistant)
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// 0. TENANT & ACCESS
+// =====================================================================
+
+model Organisation {
+  id                 String   @id @default(cuid())
+  name               String
+  legalName          String?
+  charitablePurpose  String?
+  subCategory        String?  // e.g. "Education", "Healthcare", "Rural Development"
+
+  // Contact
+  phone              String?
+  email              String?
+  website            String?
+
+  // Registered address (denormalised — simple for MVP)
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  district           String?
+  state              String?   // Use state codes from a constant list
+  stateCode          String?   // 2-digit GST state code
+  pincode            String?
+  country            String   @default("India")
+
+  // Legal identity
+  registrationType   RegistrationType @default(TRUST)
+  registrationNumber String?
+  registrationDate   DateTime?
+  pan                String?
+  tan                String?
+  cin                String?  // For Section 8 companies
+
+  // Authorised signatory
+  authorisedSignatoryName        String?
+  authorisedSignatoryDesignation String?
+
+  // Tax & funding registrations
+  twelveA            TwelveARegistration?
+  eightyG            EightyGRegistration?
+  gstRegistration    GstRegistration?
+  fcra               FcraRegistration?
+  darpan             DarpanRegistration?
+  csrOne             CsrOneRegistration?
+
+  // CA / Advisor
+  caFirmName         String?
+  caPartnerName      String?
+  caEmail            String?
+  caPhone            String?
+
+  // Branding
+  logoUrl            String?
+  signatureImageUrl  String?
+  receiptHeaderText  String?
+  receiptFooterText  String?
+
+  // Financial year
+  fyStartMonth       Int      @default(4)  // April
+  fyStartDay         Int      @default(1)
+
+  // Expense controls (Phase 3)
+  billRequiredThreshold Decimal @default(5000) @db.Decimal(18, 2)
+  pettyCashThreshold    Decimal @default(2000) @db.Decimal(18, 2)
+
+  // Beneficiary controls (Phase 4)
+  disbursementAckThreshold Decimal @default(1000) @db.Decimal(18, 2)
+
+  // Status & timestamps
+  status             OrgStatus @default(ACTIVE)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relations
+  memberships        Membership[]
+  bankAccounts       BankAccount[]
+  documents          OrgDocument[]
+  donors             Donor[]
+  donations          Donation[]
+  receiptSeries      ReceiptSeries[]
+  expenses           Expense[]
+  vendors            Vendor[]
+  pettyCashFloats    PettyCashFloat[]
+  recurringExpenses  RecurringExpense[]
+  expenseCategories  ExpenseCategory[]
+  approvalPolicies   ApprovalPolicy[]
+  projects           Project[]
+  beneficiaries      Beneficiary[]
+  volunteers         Volunteer[]
+  volunteerActivities VolunteerActivity[]
+  form10bdFilings    Form10BDFiling[]
+  itFilings          ItFiling[]
+  gstInvoices        GstInvoice[]
+  gstInvoiceSeries   GstInvoiceSeries[]
+  voucherSeries      VoucherSeries[]
+  certificateSeries  CertificateSeries[]
+  accumulations      Accumulation[]
+  reports            Report[]
+  gstFilings         GstFiling[]
+  tdsEntries         TdsEntry[]
+  tdsChallans        TdsChallan[]
+  tdsReturns         TdsReturn[]
+  ldcCertificates    LdcCertificate[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  communications     Communication[]
+  complianceItems    ComplianceItem[]
+
+  @@index([status])
+}
+
+model TwelveARegistration {
+  id               String   @id @default(cuid())
+  organisationId   String   @unique
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  number           String
+  registrationDate DateTime
+  validityEndDate  DateTime?
+  documentUrl      String?
+  isProvisional    Boolean  @default(false)
+  remarks          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model EightyGRegistration {
+  id               String   @id @default(cuid())
+  organisationId   String   @unique
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  number           String
+  approvalDate     DateTime
+  validityEndDate  DateTime?
+  documentUrl      String?
+  isProvisional    Boolean  @default(false)
+  remarks          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model GstRegistration {
+  id               String   @id @default(cuid())
+  organisationId   String   @unique
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  gstin            String
+  registrationDate DateTime
+  documentUrl      String?
+  remarks          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model FcraRegistration {
+  id               String   @id @default(cuid())
+  organisationId   String   @unique
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  number           String
+  registrationDate DateTime
+  validityEndDate  DateTime?
+  fcraBankName     String?
+  fcraBankAccountNumber String?
+  fcraBankBranch   String?
+  fcraBankIfsc     String?
+  documentUrl      String?
+  remarks          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model DarpanRegistration {
+  id               String   @id @default(cuid())
+  organisationId   String   @unique
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  darpanId         String
+  registrationDate DateTime?
+  documentUrl      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model CsrOneRegistration {
+  id               String   @id @default(cuid())
+  organisationId   String   @unique
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  csrOneRef        String
+  registrationDate DateTime?
+  documentUrl      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model OrgDocument {
+  id             String   @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  category       OrgDocumentCategory
+  title          String
+  fileUrl        String
+  mimeType       String?
+  fileSize       Int?
+  issueDate      DateTime?
+  expiryDate     DateTime?
+  remarks        String?
+  uploadedById   String?
+  uploadedBy     User?    @relation(fields: [uploadedById], references: [id])
+
+  // Soft delete (financial discipline — no hard deletes)
+  deletedAt      DateTime?
+
+  // Replacement chain: when a doc is replaced, the OLD row's `replacedById`
+  // points to the new row. The new row is the head of the chain.
+  replacedById   String?
+  replacedBy     OrgDocument?  @relation("OrgDocReplacement", fields: [replacedById], references: [id])
+  replaces       OrgDocument[] @relation("OrgDocReplacement")
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organisationId, category])
+  @@index([organisationId, deletedAt])
+  @@index([expiryDate])
+}
+
+model BankAccount {
+  id             String   @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  bankName       String
+  branch         String?
+  accountNumber  String
+  accountHolder  String?
+  ifsc           String?
+  accountType    BankAccountType @default(SAVINGS)
+  purpose        BankAccountPurpose @default(GENERAL) // GENERAL / FCRA_ONLY / CORPUS
+  openingBalance Decimal  @default(0) @db.Decimal(18, 2)
+  isPrimary      Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  donations      Donation[]
+  expenses       Expense[]
+
+  @@unique([organisationId, accountNumber])
+  @@index([organisationId, isActive])
+}
+
+// ----- Auth & Users -----
+
+model User {
+  id               String   @id @default(cuid())
+  name             String
+  email            String   @unique
+  emailVerified    DateTime?
+  passwordHash     String?
+  phone            String?
+  avatarUrl        String?
+  status           UserStatus @default(ACTIVE)
+  lastLoginAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  memberships      Membership[]
+  sessions         Session[]
+  accounts         Account[]
+  auditLogs        AuditLog[]
+  uploadedDocs     OrgDocument[]
+  createdDonations Donation[] @relation("DonationCreatedBy")
+  createdExpenses  Expense[]  @relation("ExpenseCreatedBy")
+  approvedExpenses ExpenseApproval[] @relation("ExpenseApprover")
+  ownedProjects    Project[]  @relation("ProjectManager")
+  communications   Communication[]
+  notifications    Notification[]
+  pettyCashFloats  PettyCashFloat[] @relation("PettyCashCustodian")
+  generatedReports Report[]   @relation("ReportGeneratedBy")
+}
+
+// NextAuth-compatible
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  role           OrgRole
+  customRoleId   String?
+  customRole     Role?    @relation(fields: [customRoleId], references: [id])
+  isActive       Boolean  @default(true)
+  joinedAt       DateTime @default(now())
+
+  @@unique([userId, organisationId])
+  @@index([organisationId, role])
+}
+
+// Reserved for Phase 2 custom roles. Built-in roles use OrgRole enum.
+model Role {
+  id             String   @id @default(cuid())
+  organisationId String
+  name           String
+  description    String?
+  permissions    RolePermission[]
+  memberships    Membership[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organisationId, name])
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  key         String @unique // e.g. "donation.create", "expense.approve"
+  description String?
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+// =====================================================================
+// 1. DONOR MANAGEMENT
+// =====================================================================
+
+model Donor {
+  id              String   @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  donorType       DonorType
+  name            String
+  pan             String?
+  aadhaarLast4    String?   // last 4 digits only, full Aadhaar never stored
+  isAnonymousBucket Boolean @default(false) // system "Anonymous Donations" donor
+
+  // Contact
+  phone           String?
+  whatsapp        String?
+  email           String?
+
+  // Address (mandatory for Form 10BD)
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  district        String?
+  state           String?
+  stateCode       String?
+  pincode         String?
+  country         String   @default("India")
+
+  // Flags
+  is80GEligible   Boolean  @default(true)
+  isFcraEligible  Boolean  @default(false)
+  isCsrDonor      Boolean  @default(false)
+  csrCompanyCin   String?  // For corporate CSR donors
+  whatsappOptIn   Boolean  @default(true) // donor consent for WhatsApp dispatch; explicit opt-in arrives in Phase 7
+
+  // Tags
+  tags            String[] @default([])
+  internalNotes   String?  // ADMIN+ only
+
+  // Stats (denormalised, kept in sync via service layer)
+  totalDonatedLifetime Decimal @default(0) @db.Decimal(18, 2)
+  lastDonationDate     DateTime?
+
+  status          DonorStatus @default(ACTIVE)
+  createdAt       DateTime @default(now())
+  createdById     String?
+  updatedAt       DateTime @updatedAt
+
+  donations       Donation[]
+  documents       DonorDocument[]
+  communications  Communication[]
+  form10BeIssued  Form10BECertificate[]
+
+  @@unique([organisationId, pan], map: "donor_org_pan_unique")
+  @@index([organisationId, donorType])
+  @@index([organisationId, name])
+  @@index([organisationId, isAnonymousBucket])
+}
+
+model DonorDocument {
+  id        String @id @default(cuid())
+  donorId   String
+  donor     Donor  @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  category  DonorDocumentCategory
+  title     String
+  fileUrl   String
+  createdAt DateTime @default(now())
+}
+
+model Communication {
+  id             String @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  donorId        String?
+  donor          Donor? @relation(fields: [donorId], references: [id])
+  channel        CommunicationChannel
+  direction      CommunicationDirection @default(OUTBOUND)
+  subject        String?
+  body           String? @db.Text
+  attachmentUrl  String?
+  occurredAt     DateTime @default(now())
+  sentById       String?
+  sentBy         User?  @relation(fields: [sentById], references: [id])
+  externalRef    String?  // WhatsApp message id, etc.
+  createdAt      DateTime @default(now())
+
+  @@index([organisationId, donorId])
+  @@index([organisationId, occurredAt])
+}
+
+// =====================================================================
+// 2. DONATION RECORDING
+// =====================================================================
+
+model ReceiptSeries {
+  id              String   @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name            String   // "General", "FCRA", "Corpus"
+  prefix          String   // "RKS/"
+  financialYear   String   // "2025-26"
+  separator       String   @default("/")
+  width           Int      @default(4)
+  currentNumber   Int      @default(0)
+  isFcraOnly      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  donations       Donation[]
+
+  @@unique([organisationId, name, financialYear])
+}
+
+model Donation {
+  id                 String   @id @default(cuid())
+  organisationId     String
+  organisation       Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  donorId            String
+  donor              Donor    @relation(fields: [donorId], references: [id])
+
+  receiptNumber      String   // Generated from series
+  receiptSeriesId    String?
+  receiptSeries      ReceiptSeries? @relation(fields: [receiptSeriesId], references: [id])
+
+  donationDate       DateTime
+  amount             Decimal  @db.Decimal(18, 2)
+  currency           String   @default("INR")
+
+  mode               DonationMode
+  bankAccountId      String?
+  bankAccount        BankAccount? @relation(fields: [bankAccountId], references: [id])
+  paymentRef         String?  // Cheque no / UTR / UPI ref / DD no
+  paymentDate        DateTime?  // For cheque clearing
+  paymentRealisedDate DateTime?
+
+  // In-kind
+  isInKind           Boolean  @default(false)
+  inKindDescription  String?
+  inKindValuationMethod InKindValuationMethod?
+
+  purpose            DonationPurpose @default(GENERAL)
+  projectId          String?
+  project            Project? @relation(fields: [projectId], references: [id])
+
+  is80GEligible      Boolean  @default(true)
+
+  isCsr              Boolean  @default(false)
+  csrCompanyCin      String?
+
+  isFcra             Boolean  @default(false)
+
+  // 80G receipt
+  receiptUrl         String?
+  receiptGeneratedAt DateTime?
+  amountInWords      String?
+
+  // 10BD tracking
+  isReportedIn10BD   Boolean  @default(false)
+  form10BdFilingId   String?
+  form10BdFiling     Form10BDFiling? @relation(fields: [form10BdFilingId], references: [id])
+  donationTypeFor10BD Form10BDDonationType?  // Corpus / Specific grant / Others
+  identificationTypeFor10BD String?  // PAN / Aadhaar / Tax Identification etc.
+
+  status             DonationStatus @default(RECEIVED)
+  cancellationReason String?
+  cancelledAt        DateTime?
+  cancelledById      String?
+  remarks            String?
+
+  createdById        String?
+  createdBy          User?    @relation("DonationCreatedBy", fields: [createdById], references: [id])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([organisationId, receiptNumber])
+  @@index([organisationId, donationDate])
+  @@index([organisationId, donorId])
+  @@index([organisationId, donorId, donationDate])
+  @@index([organisationId, projectId])
+  @@index([organisationId, status])
+  @@index([organisationId, isFcra])
+  @@index([organisationId, isCsr])
+  @@index([organisationId, donationDate, status])
+}
+
+// =====================================================================
+// 4. EXPENSE MANAGEMENT
+// =====================================================================
+
+model Vendor {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name            String
+  pan             String?
+  gstin           String?
+  defaultTdsSection String? // "194C", "194J", "192", "194I", etc.
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  stateCode       String?
+  pincode         String?
+  phone           String?
+  email           String?
+  bankName        String?
+  bankAccountNumber String?
+  bankIfsc        String?
+  isActive        Boolean @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  expenses        Expense[]
+
+  @@index([organisationId, name])
+}
+
+model ExpenseCategory {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name            String
+  parentId        String?
+  parent          ExpenseCategory? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children        ExpenseCategory[] @relation("CategoryHierarchy")
+  isActive        Boolean @default(true)
+
+  // Phase 3 — category-level rules surfaced on the expense form
+  requiresProject     Boolean @default(false)
+  defaultItcEligible  Boolean @default(true)
+  isCapital           Boolean @default(false)
+  fcraRestricted      Boolean @default(false)
+
+  expenses        Expense[]
+
+  @@unique([organisationId, name])
+}
+
+model Expense {
+  id                  String   @id @default(cuid())
+  organisationId      String
+  organisation        Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  voucherNumber       String
+  voucherSeriesId     String?
+  voucherSeries       VoucherSeries? @relation(fields: [voucherSeriesId], references: [id])
+  expenseDate         DateTime
+
+  vendorId            String?
+  vendor              Vendor?  @relation(fields: [vendorId], references: [id])
+  cashPayeeName       String?  // one-off cash payouts without a vendor master record
+
+  categoryId          String?
+  category            ExpenseCategory? @relation(fields: [categoryId], references: [id])
+
+  projectId           String?
+  project             Project? @relation(fields: [projectId], references: [id])
+  budgetHeadId        String?
+  budgetHead          ProjectBudgetHead? @relation(fields: [budgetHeadId], references: [id])
+
+  grossAmount         Decimal  @db.Decimal(18, 2)
+  tdsAmount           Decimal  @default(0) @db.Decimal(18, 2)
+  tdsSection          String?
+  tdsRate             Decimal? @db.Decimal(5, 2)
+  netPayable          Decimal  @db.Decimal(18, 2)
+  exceededBudgetAt    DateTime? // audit trail for budget overrides
+
+  // GST
+  gstApplicable       Boolean  @default(false)
+  cgst                Decimal  @default(0) @db.Decimal(18, 2)
+  sgst                Decimal  @default(0) @db.Decimal(18, 2)
+  igst                Decimal  @default(0) @db.Decimal(18, 2)
+  isItcEligible       Boolean  @default(false)
+
+  mode                PaymentMode
+  bankAccountId       String?
+  bankAccount         BankAccount? @relation(fields: [bankAccountId], references: [id])
+  paymentRef          String?
+  paidAt              DateTime?
+
+  billUrl             String?
+  description         String?
+
+  isPettyCash         Boolean  @default(false)
+  pettyCashFloatId    String?
+  pettyCashFloat      PettyCashFloat? @relation(fields: [pettyCashFloatId], references: [id])
+
+  recurringTemplateId String?
+  recurringTemplate   RecurringExpense? @relation(fields: [recurringTemplateId], references: [id])
+
+  status              ExpenseStatus @default(DRAFT)
+  approvals           ExpenseApproval[]
+  tdsEntry            TdsEntry?
+
+  createdById         String?
+  createdBy           User?    @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([organisationId, voucherNumber])
+  @@index([organisationId, expenseDate])
+  @@index([organisationId, vendorId])
+  @@index([organisationId, projectId])
+  @@index([organisationId, status])
+}
+
+model ExpenseApproval {
+  id          String @id @default(cuid())
+  expenseId   String
+  expense     Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  approverId  String
+  approver    User   @relation("ExpenseApprover", fields: [approverId], references: [id])
+  level       Int    @default(1)
+  decision    ApprovalDecision
+  notes       String?
+  decidedAt   DateTime @default(now())
+
+  @@index([approverId, decision])
+}
+
+model ApprovalPolicy {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  scope           ApprovalScope @default(EXPENSE)
+  minAmount       Decimal @db.Decimal(18, 2)
+  maxAmount       Decimal? @db.Decimal(18, 2)
+  requiredRole    OrgRole
+  level           Int @default(1)
+  isActive        Boolean @default(true)
+  createdAt       DateTime @default(now())
+
+  @@index([organisationId, scope])
+}
+
+model PettyCashFloat {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name            String
+  custodianId     String?
+  custodian       User?  @relation("PettyCashCustodian", fields: [custodianId], references: [id])
+  floatAmount     Decimal @db.Decimal(18, 2)
+  currentBalance  Decimal @default(0) @db.Decimal(18, 2)
+  isActive        Boolean @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  expenses        Expense[]
+  topUps          PettyCashTopUp[]
+}
+
+model PettyCashTopUp {
+  id          String @id @default(cuid())
+  floatId     String
+  float       PettyCashFloat @relation(fields: [floatId], references: [id], onDelete: Cascade)
+  amount      Decimal @db.Decimal(18, 2)
+  topUpDate   DateTime
+  bankAccountId String?
+  remarks     String?
+  createdAt   DateTime @default(now())
+}
+
+model RecurringExpense {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name            String
+  vendorId        String?
+  categoryId      String?
+  projectId       String?
+  amount          Decimal @db.Decimal(18, 2)
+  frequency       RecurringFrequency
+  nextDueDate     DateTime
+  endDate         DateTime?
+  isActive        Boolean @default(true)
+  lastGeneratedFor DateTime? // job idempotency — last nextDueDate the runner consumed
+  remarks         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  generatedExpenses Expense[]
+}
+
+// =====================================================================
+// 9. PROJECT MANAGEMENT
+// =====================================================================
+
+model Project {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  code            String
+  name            String
+  description     String? @db.Text
+  startDate       DateTime?
+  endDate         DateTime?
+  totalBudget     Decimal @default(0) @db.Decimal(18, 2)
+  managerId       String?
+  manager         User?   @relation("ProjectManager", fields: [managerId], references: [id])
+  isCsr           Boolean @default(false)
+  isFcra          Boolean @default(false) // auto-flag from tagged FCRA donations
+  status          ProjectStatus @default(PLANNED)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  budgetHeads     ProjectBudgetHead[]
+  grants          GrantAllocation[]
+  donations       Donation[]
+  expenses        Expense[]
+  beneficiaryEnrolments BeneficiaryEnrolment[]
+  utilisationCertificates UtilisationCertificate[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId, status])
+}
+
+model ProjectBudgetHead {
+  id          String @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String  // "Training", "Materials", "Salaries"
+  budgetedAmount Decimal @db.Decimal(18, 2)
+  expenses    Expense[]
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, name])
+}
+
+model GrantAllocation {
+  id          String @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  donorId     String?
+  description String  // e.g. "CSR grant FY 25-26 from Infosys"
+  amount      Decimal @db.Decimal(18, 2)
+  receivedOn  DateTime?
+  remarks     String?
+  createdAt   DateTime @default(now())
+}
+
+model UtilisationCertificate {
+  id          String @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  donorId     String?
+  certificateNumber String?
+  certificateSeriesId String?
+  certificateSeries CertificateSeries? @relation(fields: [certificateSeriesId], references: [id])
+  periodFrom  DateTime
+  periodTo    DateTime
+  amountReceived Decimal @db.Decimal(18, 2)
+  amountUtilised Decimal @db.Decimal(18, 2)
+  balance     Decimal @db.Decimal(18, 2)
+  fileUrl     String?
+  status      String @default("ACTIVE") // ACTIVE | CANCELLED — for Phase 6 project-cancellation flow
+  generatedAt DateTime @default(now())
+  generatedById String?
+
+  @@index([projectId, donorId])
+}
+
+// =====================================================================
+// 10. BENEFICIARY MANAGEMENT
+// =====================================================================
+
+model Beneficiary {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  code            String?
+  name            String
+  dob             DateTime?
+  gender          Gender?
+  category        String? // "student", "patient", etc.
+  phone           String?
+  email           String?
+  addressLine1    String?
+  city            String?
+  state           String?
+  pincode         String?
+  photoUrl        String?
+  idProofUrl      String?
+  internalNotes   String?
+  status          BeneficiaryStatus @default(ACTIVE)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  enrolments      BeneficiaryEnrolment[]
+  disbursements   BeneficiaryDisbursement[]
+  impactRecords   ImpactRecord[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId, name])
+}
+
+model BeneficiaryEnrolment {
+  id            String @id @default(cuid())
+  beneficiaryId String
+  beneficiary   Beneficiary @relation(fields: [beneficiaryId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project @relation(fields: [projectId], references: [id])
+  enrolledOn    DateTime
+  exitedOn      DateTime?
+  remarks       String?
+
+  @@unique([beneficiaryId, projectId])
+}
+
+model BeneficiaryDisbursement {
+  id             String @id @default(cuid())
+  beneficiaryId  String
+  beneficiary    Beneficiary @relation(fields: [beneficiaryId], references: [id], onDelete: Cascade)
+  disbursementDate DateTime
+  type           DisbursementType
+  value          Decimal @db.Decimal(18, 2)
+  description    String?
+  expenseId      String?  // optional link to expense voucher
+  ackUrl         String?  // signature / OTP / photo proof
+  createdAt      DateTime @default(now())
+}
+
+model ImpactRecord {
+  id             String @id @default(cuid())
+  beneficiaryId  String
+  beneficiary    Beneficiary @relation(fields: [beneficiaryId], references: [id], onDelete: Cascade)
+  recordDate     DateTime
+  metricName     String
+  metricValue    String  // free-form to keep schema flexible across programmes
+  notes          String?
+  createdAt      DateTime @default(now())
+}
+
+// =====================================================================
+// 11. VOLUNTEER MANAGEMENT
+// =====================================================================
+
+model Volunteer {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name            String
+  phone           String?
+  email           String?
+  skills          String[] @default([])
+  availability    String?
+  joinedOn        DateTime?
+  status          VolunteerStatus @default(ACTIVE)
+  totalHours      Decimal @default(0) @db.Decimal(10, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assignments     VolunteerAssignment[]
+  certificates    VolunteerCertificate[]
+
+  @@index([organisationId, name])
+}
+
+model VolunteerActivity {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  location        String?
+  startsAt        DateTime
+  endsAt          DateTime?
+  requiredVolunteers Int  @default(1)
+  createdAt       DateTime @default(now())
+
+  assignments     VolunteerAssignment[]
+}
+
+model VolunteerAssignment {
+  id            String @id @default(cuid())
+  volunteerId   String
+  volunteer     Volunteer @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  activityId    String
+  activity      VolunteerActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  checkInAt     DateTime?
+  checkOutAt    DateTime?
+  hours         Decimal? @db.Decimal(10, 2)
+  remarks       String?
+
+  @@unique([volunteerId, activityId])
+}
+
+model VolunteerCertificate {
+  id            String @id @default(cuid())
+  volunteerId   String
+  volunteer     Volunteer @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  certificateNumber String?
+  certificateSeriesId String?
+  certificateSeries CertificateSeries? @relation(fields: [certificateSeriesId], references: [id])
+  periodFrom    DateTime
+  periodTo      DateTime
+  totalHours    Decimal @db.Decimal(10, 2)
+  fileUrl       String?
+  generatedAt   DateTime @default(now())
+}
+
+// =====================================================================
+// 5. FORM 10BD & 10BE
+// =====================================================================
+
+model Form10BDFiling {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  financialYear   String   // "2024-25"
+  preparedAt      DateTime @default(now())
+  preparedById    String?
+
+  // Filing outcome
+  filingStatus    Form10BDStatus @default(DRAFT)
+  filedAt         DateTime?
+  arnNumber       String?
+  acknowledgementUrl String?
+  csvExportUrl    String?
+
+  totalDonations  Decimal @default(0) @db.Decimal(18, 2)
+  totalDonors     Int     @default(0)
+
+  // Phase 5 — revision tracking + human-readable summary
+  summaryPdfUrl     String?
+  isRevision        Boolean @default(false)
+  originalFilingArn String?
+
+  donations       Donation[]
+  certificates    Form10BECertificate[]
+
+  @@unique([organisationId, financialYear])
+}
+
+model Form10BECertificate {
+  id              String @id @default(cuid())
+  organisationId  String
+  filingId        String
+  filing          Form10BDFiling @relation(fields: [filingId], references: [id], onDelete: Cascade)
+  donorId         String
+  donor           Donor   @relation(fields: [donorId], references: [id])
+  certificateNumber String?
+  certificateSeriesId String?
+  certificateSeries CertificateSeries? @relation(fields: [certificateSeriesId], references: [id])
+  aggregateAmount Decimal @db.Decimal(18, 2)
+  donationTypes   String[] @default([])
+  amountInWords   String?
+  fileUrl         String?
+  generatedAt     DateTime @default(now())
+  emailedAt       DateTime?
+  whatsappedAt    DateTime?
+
+  @@unique([filingId, donorId])
+  @@index([organisationId])
+}
+
+// =====================================================================
+// 6. INCOME TAX COMPLIANCE
+// =====================================================================
+
+model ItFiling {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  financialYear   String
+  filingType      ItFilingType  // ITR7 / FORM_10 / FORM_10B / FORM_10BB
+  dueDate         DateTime?
+  preparedAt      DateTime?
+  filedAt         DateTime?
+  ackNumber       String?
+  fileUrl         String?
+  excelUrl        String?
+  pdfUrl          String?
+  status          ItFilingStatus @default(PENDING)
+  taxLiability    Decimal @default(0) @db.Decimal(18, 2)
+  remarks         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organisationId, financialYear, filingType])
+}
+
+// Phase 5 — Form 10 accumulation tracker (Sec 11(2)).
+model Accumulation {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  financialYear   String
+  amount          Decimal @db.Decimal(18, 2)
+  purpose         String  // free-text — e.g. "Construction of school building"
+  periodYears     Int     @default(5)
+  startDate       DateTime
+  endDate         DateTime
+  status          AccumulationStatus @default(ACTIVE)
+  supportDocUrl   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organisationId, financialYear])
+  @@index([organisationId, status])
+}
+
+// Yearly snapshot for 85% rule monitoring and ITR-7 figures
+model FinancialYearSummary {
+  id                       String @id @default(cuid())
+  organisationId           String
+  financialYear            String
+  totalReceipts            Decimal @default(0) @db.Decimal(18, 2)
+  corpusDonations          Decimal @default(0) @db.Decimal(18, 2)
+  fcraDonations            Decimal @default(0) @db.Decimal(18, 2)
+  anonymousDonations       Decimal @default(0) @db.Decimal(18, 2)
+  totalApplication         Decimal @default(0) @db.Decimal(18, 2)
+  revenueApplication       Decimal @default(0) @db.Decimal(18, 2)
+  capitalApplication       Decimal @default(0) @db.Decimal(18, 2)
+  accumulatedUnderSec11_2  Decimal @default(0) @db.Decimal(18, 2)
+  applicationPercent       Decimal @default(0) @db.Decimal(5, 2)
+  computedAt               DateTime @default(now())
+
+  @@unique([organisationId, financialYear])
+}
+
+// =====================================================================
+// 7. GST COMPLIANCE
+// =====================================================================
+
+model GstInvoiceSeries {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name            String
+  prefix          String
+  financialYear   String
+  currentNumber   Int @default(0)
+  width           Int @default(4)
+  isActive        Boolean @default(true)
+  createdAt       DateTime @default(now())
+
+  @@unique([organisationId, name, financialYear])
+}
+
+// Phase 3 — voucher number allocator series.
+// Separate from ReceiptSeries because vouchers have different audit treatment
+// (general / petty cash / recurring run on independent counters).
+model VoucherSeries {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  kind            VoucherSeriesKind
+  name            String
+  prefix          String
+  separator       String @default("/")
+  financialYear   String
+  currentNumber   Int    @default(0)
+  width           Int    @default(4)
+  isActive        Boolean @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  expenses        Expense[]
+
+  @@unique([organisationId, kind, financialYear])
+}
+
+// Phase 4 — certificate number allocator (utilisation + volunteer certs).
+// Same share-core SQL as ReceiptSeries / VoucherSeries.
+model CertificateSeries {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  kind            CertificateSeriesKind
+  name            String
+  prefix          String
+  separator       String @default("/")
+  financialYear   String
+  currentNumber   Int    @default(0)
+  width           Int    @default(4)
+  isActive        Boolean @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  utilisationCerts UtilisationCertificate[]
+  volunteerCerts   VolunteerCertificate[]
+  form10BeCerts    Form10BECertificate[]
+
+  @@unique([organisationId, kind, financialYear])
+}
+
+model GstInvoice {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  invoiceNumber   String
+  invoiceDate     DateTime
+  buyerName       String
+  buyerGstin      String?
+  buyerStateCode  String?
+  placeOfSupply   String?
+  isInterState    Boolean @default(false)
+  isExempted      Boolean @default(false)
+  exemptionRef    String?
+  hsnSac          String?
+  taxableValue    Decimal @db.Decimal(18, 2)
+  cgst            Decimal @default(0) @db.Decimal(18, 2)
+  sgst            Decimal @default(0) @db.Decimal(18, 2)
+  igst            Decimal @default(0) @db.Decimal(18, 2)
+  total           Decimal @db.Decimal(18, 2)
+  status          GstInvoiceStatus @default(DRAFT)
+  fileUrl         String?
+  remarks         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organisationId, invoiceNumber])
+  @@index([organisationId, invoiceDate])
+}
+
+model GstFiling {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  filingType      GstFilingType   // GSTR1 / GSTR3B
+  period          String          // "2025-04" (YYYY-MM)
+  dueDate         DateTime
+  preparedAt      DateTime?
+  filedAt         DateTime?
+  arnNumber       String?
+  exportUrl       String?
+  status          GstFilingStatus @default(PENDING)
+  remarks         String?
+  createdAt       DateTime @default(now())
+
+  @@unique([organisationId, filingType, period])
+}
+
+// =====================================================================
+// 8. TDS COMPLIANCE
+// =====================================================================
+
+model TdsEntry {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  expenseId       String?  @unique
+  expense         Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  deducteeName    String
+  deducteePan     String?
+  section         String   // "194C", "194J", "192", "194I"
+  amountPaid      Decimal  @db.Decimal(18, 2)
+  tdsRate         Decimal  @db.Decimal(5, 2)
+  tdsAmount       Decimal  @db.Decimal(18, 2)
+  deductionDate   DateTime
+  challanId       String?
+  challan         TdsChallan? @relation(fields: [challanId], references: [id])
+  quarter         String   // "Q1", "Q2", "Q3", "Q4"
+  financialYear   String
+  ldcCertificateId String?
+  ldcCertificate  LdcCertificate? @relation(fields: [ldcCertificateId], references: [id])
+  status          TdsEntryStatus @default(ACTIVE)
+  remarks         String?
+  createdAt       DateTime @default(now())
+
+  @@index([organisationId, financialYear, quarter])
+  @@index([organisationId, section])
+  @@index([organisationId, status])
+}
+
+model TdsChallan {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  challanNumber   String
+  bsrCode         String
+  challanDate     DateTime
+  amount          Decimal  @db.Decimal(18, 2)
+  reconciledAmount Decimal @default(0) @db.Decimal(18, 2)
+  section         String?
+  fileUrl         String?
+  remarks         String?
+  createdAt       DateTime @default(now())
+
+  entries         TdsEntry[]
+
+  @@unique([organisationId, challanNumber])
+}
+
+model TdsReturn {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  formType        TdsReturnType  // FORM_26Q / FORM_24Q
+  financialYear   String
+  quarter         String
+  dueDate         DateTime
+  preparedAt      DateTime?
+  filedAt         DateTime?
+  ackNumber       String?
+  fileUrl         String?
+  status          TdsReturnStatus @default(PENDING)
+  createdAt       DateTime @default(now())
+
+  @@unique([organisationId, formType, financialYear, quarter])
+}
+
+model LdcCertificate {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  deducteeName    String
+  deducteePan     String
+  section         String
+  certNumber      String
+  lowerRate       Decimal  @db.Decimal(5, 2)
+  validFrom       DateTime
+  validTo         DateTime
+  fileUrl         String?
+  remarks         String?
+  createdAt       DateTime @default(now())
+
+  entries         TdsEntry[]
+
+  @@index([organisationId, deducteePan])
+}
+
+// =====================================================================
+// 12. COMPLIANCE CALENDAR & NOTIFICATIONS
+// =====================================================================
+
+model ComplianceItem {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  category        ComplianceCategory   // GST / TDS / IT / FCRA / INTERNAL
+  title           String
+  description     String?
+  dueDate         DateTime
+  responsibleUserId String?
+  status          ComplianceStatus @default(UPCOMING)
+  completedAt     DateTime?
+  referenceUrl    String?
+  referenceModel  String?  // e.g. "ItFiling", "GstFiling"
+  referenceId     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organisationId, dueDate])
+  @@index([organisationId, status])
+}
+
+model Notification {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?   @relation(fields: [userId], references: [id])
+  channel         NotificationChannel
+  title           String
+  body            String  @db.Text
+  link            String?
+  isRead          Boolean @default(false)
+  readAt          DateTime?
+  sentAt          DateTime?
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+
+  @@index([organisationId, userId, isRead])
+}
+
+// =====================================================================
+// AUDIT TRAIL
+// =====================================================================
+
+model AuditLog {
+  id              String @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?   @relation(fields: [userId], references: [id])
+  action          String  // "donation.create", "expense.approve", etc.
+  entityType      String  // "Donation", "Expense", etc.
+  entityId        String
+  before          Json?
+  after           Json?
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  @@index([organisationId, entityType, entityId])
+  @@index([organisationId, userId, createdAt])
+  @@index([organisationId, createdAt])
+}
+
+// =====================================================================
+// ENUMS
+// =====================================================================
+
+enum RegistrationType {
+  TRUST
+  SOCIETY
+  SECTION_8_COMPANY
+  OTHER
+}
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  ACCOUNTANT
+  PROJECT_MANAGER
+  AUDITOR
+  VIEWER
+}
+
+enum OrgDocumentCategory {
+  REGISTRATION_CERT
+  TRUST_DEED
+  PAN
+  TWELVE_A
+  EIGHTY_G
+  FCRA
+  DARPAN
+  CSR_ONE
+  GST
+  AUTHORISED_SIGNATORY
+  OTHER
+}
+
+enum BankAccountType {
+  SAVINGS
+  CURRENT
+  OD
+  CC
+}
+
+enum BankAccountPurpose {
+  GENERAL
+  FCRA_ONLY
+  CORPUS
+  PROJECT_SPECIFIC
+}
+
+enum DonorType {
+  INDIVIDUAL
+  CORPORATE
+  NRI
+  ANONYMOUS
+  TRUST
+  HUF
+  GOVERNMENT
+  FOREIGN_SOURCE
+}
+
+enum DonorStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum DonorDocumentCategory {
+  PAN_CARD
+  AADHAAR
+  ID_PROOF
+  CSR_FORM
+  OTHER
+}
+
+enum CommunicationChannel {
+  EMAIL
+  WHATSAPP
+  SMS
+  CALL
+  IN_PERSON
+  LETTER
+}
+
+enum CommunicationDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum DonationMode {
+  CASH
+  CHEQUE
+  DD
+  NEFT
+  RTGS
+  IMPS
+  UPI
+  CARD
+  ONLINE_GATEWAY
+  IN_KIND
+  OTHER
+}
+
+enum InKindValuationMethod {
+  FAIR_MARKET_VALUE
+  COST
+  APPRAISED
+  ESTIMATED
+}
+
+enum DonationPurpose {
+  GENERAL
+  CORPUS
+  PROJECT_SPECIFIC
+  CSR
+  RELIEF
+  EARMARKED_GRANT
+}
+
+enum DonationStatus {
+  RECEIVED
+  PENDING_REALISATION  // e.g. cheque not yet cleared
+  REALISED
+  BOUNCED
+  CANCELLED
+}
+
+enum Form10BDDonationType {
+  CORPUS
+  SPECIFIC_GRANT
+  OTHERS
+  FOREIGN_SOURCE
+}
+
+enum PaymentMode {
+  CASH
+  CHEQUE
+  NEFT
+  RTGS
+  IMPS
+  UPI
+  CARD
+  OTHER
+}
+
+enum ExpenseStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PAID
+  CANCELLED
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+  RETURNED
+}
+
+enum ApprovalScope {
+  EXPENSE
+  GRANT
+  RECURRING
+}
+
+enum RecurringFrequency {
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  YEARLY
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum BeneficiaryStatus {
+  ACTIVE
+  EXITED
+  INACTIVE
+}
+
+enum DisbursementType {
+  CASH
+  KIND
+  SERVICE
+  SCHOLARSHIP
+  MEDICAL
+  OTHER
+}
+
+enum VolunteerStatus {
+  ACTIVE
+  INACTIVE
+  ALUMNI
+}
+
+enum Form10BDStatus {
+  DRAFT
+  VALIDATED
+  EXPORTED
+  FILED
+  REVISED
+}
+
+enum ItFilingType {
+  ITR7
+  FORM_10
+  FORM_10B
+  FORM_10BB
+  FORM_9A
+}
+
+enum ItFilingStatus {
+  PENDING
+  PREPARED
+  FILED
+  REVISED
+  OVERDUE
+}
+
+enum GstInvoiceStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+}
+
+enum GstFilingType {
+  GSTR1
+  GSTR3B
+  GSTR9
+  GSTR9A
+}
+
+enum GstFilingStatus {
+  PENDING
+  PREPARED
+  FILED
+  OVERDUE
+}
+
+enum TdsReturnType {
+  FORM_26Q
+  FORM_24Q
+  FORM_27Q
+  FORM_27EQ
+}
+
+enum TdsReturnStatus {
+  PENDING
+  PREPARED
+  FILED
+  REVISED
+  OVERDUE
+}
+
+enum TdsEntryStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum VoucherSeriesKind {
+  GENERAL
+  PETTY_CASH
+  RECURRING
+}
+
+enum CertificateSeriesKind {
+  UTILISATION
+  VOLUNTEER
+  FORM_10BE
+}
+
+enum AccumulationStatus {
+  ACTIVE
+  UTILISED
+  EXPIRED
+}
+
+enum ComplianceCategory {
+  GST
+  TDS
+  IT
+  FCRA
+  TWELVE_A
+  EIGHTY_G
+  DARPAN
+  INTERNAL
+}
+
+enum ComplianceStatus {
+  UPCOMING
+  DUE
+  FILED
+  OVERDUE
+  WAIVED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+  SMS
+}
+
+// =====================================================================
+// 13. PHASE 6 — REPORTS + JOB RUNS
+// =====================================================================
+
+/// Historical record of a generated report. The actual files live in storage;
+/// this row stores the parameters + URLs for re-download.
+model Report {
+  id              String   @id @default(cuid())
+  organisationId  String
+  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  reportType      ReportType
+  /// JSON snapshot of the parameters used to generate the report (FY, date range,
+  /// project filter, etc.). Enables re-running the same report later.
+  params          Json
+  generatedAt     DateTime @default(now())
+  generatedById   String?
+  generatedBy     User?    @relation("ReportGeneratedBy", fields: [generatedById], references: [id])
+  pdfStorageKey   String?
+  pdfUrl          String?
+  excelStorageKey String?
+  excelUrl        String?
+  status          ReportStatus @default(GENERATING)
+  errorMessage    String?
+
+  @@index([organisationId, reportType, generatedAt])
+  @@index([organisationId, generatedAt])
+}
+
+enum ReportType {
+  RECEIPT_PAYMENT
+  INCOME_EXPENDITURE
+  BALANCE_SHEET
+  FUND_FLOW
+  DONOR_WISE
+  PROJECT_UTILISATION
+  TDS_QUARTERLY
+  GST_SUMMARY
+  AUDIT_TRAIL
+  BENEFICIARY_IMPACT
+}
+
+enum ReportStatus {
+  GENERATING
+  READY
+  FAILED
+}
+
+/// Cron job health log. Phase 6 cron service writes one row per run.
+model JobRun {
+  id                String   @id @default(cuid())
+  jobName           String
+  startedAt         DateTime @default(now())
+  finishedAt        DateTime?
+  status            JobRunStatus @default(RUNNING)
+  errorMessage      String?
+  recordsProcessed  Int      @default(0)
+  meta              Json?
+
+  @@index([jobName, startedAt])
+  @@index([status])
+}
+
+enum JobRunStatus {
+  RUNNING
+  SUCCESS
+  FAILURE
+}

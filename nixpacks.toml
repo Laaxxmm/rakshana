@@ -11,6 +11,12 @@
 #   - We force the install phase to run `prisma generate` (the package's
 #     postinstall script does this, but redundancy here makes failure
 #     modes easier to diagnose in Railway logs).
+#
+# IMPORTANT: `prisma migrate deploy` does NOT run here. Railway only
+# injects DATABASE_URL at runtime, not at build time, so migrations would
+# crash with "Environment variable not found: DATABASE_URL". Migrations
+# are owned by `deploy.preDeployCommand` in railway.json — that runs
+# after build with full access to runtime env vars.
 
 [phases.setup]
 nixPkgs = ["nodejs_22", "openssl"]
@@ -23,7 +29,6 @@ cmds = [
 
 [phases.build]
 cmds = [
-  "npx prisma migrate deploy",
   "npx next build",
 ]
 

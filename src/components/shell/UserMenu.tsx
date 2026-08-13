@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { IconLogout, IconUser } from "@tabler/icons-react";
+import { IconLogout, IconSettings } from "@tabler/icons-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -40,18 +42,26 @@ export function UserMenu({
         </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
-        <DropdownMenuLabel>
-          <span className="block truncate text-sm font-medium">{name}</span>
-          <span className="block truncate text-xs text-ink-muted">{email}</span>
-          <span className="mt-1 block text-[10px] uppercase tracking-wider text-ink-subtle">
-            {role}
-          </span>
-        </DropdownMenuLabel>
+        {/* Base UI throws "MenuGroupContext is missing" if a Label sits
+            outside a Group, which took the whole app down on click. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>
+            <span className="block truncate text-sm font-medium">{name}</span>
+            <span className="block truncate text-xs text-ink-muted">{email}</span>
+            <span className="mt-1 block text-[10px] uppercase tracking-wider text-ink-subtle">
+              {role}
+            </span>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled>
-          <IconUser size={14} />
-          Profile (Phase 6)
-        </DropdownMenuItem>
+        <DropdownMenuItem
+          render={
+            <Link href="/settings/organisation">
+              <IconSettings size={14} />
+              Settings
+            </Link>
+          }
+        />
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => signOut({ callbackUrl: "/login" })}

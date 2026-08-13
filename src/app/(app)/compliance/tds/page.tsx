@@ -90,7 +90,7 @@ export default async function TdsIndex() {
   );
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="compliance" />
       <header>
         <Link href="/compliance" className="text-sm text-ink-muted hover:text-ink">

@@ -69,7 +69,7 @@ export default async function OrganisationProfilePage() {
   const canEditBanking = canEdit || scope.role === "ADMIN";
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="space-y-6">
       <header>
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">
           Settings · Organisation

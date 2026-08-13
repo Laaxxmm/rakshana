@@ -206,3 +206,28 @@ changed. 266 -> 267 tests.
 | `npx tsc --noEmit` | exit 0, 0 errors |
 | `npm test` | 38 files, 267 tests, all passed |
 | `rm -rf .next && env -u DATABASE_URL npx next build` | exit 0 |
+
+## Round 3 — dependency audit
+
+23 advisories (2 critical, 15 high) down to 2 moderate.
+
+- `npm audit fix` cleared 16, including both criticals in `@auth/core` /
+  `next-auth` — one of which let existence-based auth checks fail open.
+- `next` 16.2.6 → 16.3.0 cleared the App Router middleware bypass plus the
+  transitive `postcss` and `sharp` (libvips) advisories.
+- `nodemailer` 7 → 9 for the SMTP command injection. Our usage is
+  `createTransport` + `sendMail`, untouched by the major.
+- `pdfjs-dist` removed rather than upgraded. It existed only to draw a
+  40×56px thumbnail on the upload widget, and it fetched its worker from a
+  CDN. Rendering an attacker-supplied PDF (a vendor bill) in a staff
+  session to produce a thumbnail is not a trade worth making — the file
+  icon covers it.
+
+### Knowingly not fixed
+
+`exceljs` → `uuid` (2 × moderate). npm's only "fix" is a **downgrade** to
+`exceljs@3.4.0`, across a major, to dodge a missing buffer bounds check in
+`uuid` v3/v5/v6 that only triggers when the caller passes a `buf` argument.
+exceljs does not. Downgrading the library that writes every audit export to
+dodge an unreachable bug is the worse risk. Revisit when exceljs ships a
+release on a patched uuid.

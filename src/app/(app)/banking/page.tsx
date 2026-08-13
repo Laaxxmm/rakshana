@@ -119,7 +119,7 @@ export default async function BankingPage() {
   const totalBalance = totalOpening.plus(totalReceipts).minus(totalPayments);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="moneyOut" />
       <header className="flex items-end justify-between gap-4">
         <div>

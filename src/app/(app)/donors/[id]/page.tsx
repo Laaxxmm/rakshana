@@ -62,7 +62,7 @@ export default async function DonorProfilePage({
   const firstDate = donations[donations.length - 1]?.donationDate ?? null;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <Link
         href="/donors"
         className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"

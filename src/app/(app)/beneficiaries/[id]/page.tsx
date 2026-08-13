@@ -62,7 +62,7 @@ export default async function BeneficiaryProfilePage({
   const totalDisbursed = b.disbursements.reduce((acc, d) => acc + Number(d.value), 0);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <Link
         href="/beneficiaries"
         className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"

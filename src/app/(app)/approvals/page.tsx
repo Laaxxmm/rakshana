@@ -33,7 +33,7 @@ export default async function ApprovalsPage() {
   });
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="moneyOut" />
       <header>
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Inbox</p>

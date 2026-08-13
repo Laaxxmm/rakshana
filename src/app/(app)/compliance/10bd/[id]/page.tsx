@@ -48,7 +48,7 @@ export default async function Form10BDFilingPage({
   }));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <div>
         <Link
           href="/compliance/10bd"

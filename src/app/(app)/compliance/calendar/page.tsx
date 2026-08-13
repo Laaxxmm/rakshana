@@ -43,7 +43,7 @@ export default async function CalendarPage() {
   const orderedCats = ["IT", "GST", "TDS", "FCRA", "TWELVE_A", "EIGHTY_G", "DARPAN", "INTERNAL"];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="compliance" />
       <header className="flex items-end justify-between gap-4">
         <div>

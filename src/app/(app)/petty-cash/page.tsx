@@ -50,7 +50,7 @@ export default async function PettyCashPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="moneyOut" />
       <header className="flex items-end justify-between gap-4">
         <div>

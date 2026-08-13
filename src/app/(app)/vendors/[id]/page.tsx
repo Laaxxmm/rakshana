@@ -51,7 +51,7 @@ export default async function VendorProfilePage({ params }: { params: Promise<{ 
   ]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <Link
         href="/vendors"
         className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"

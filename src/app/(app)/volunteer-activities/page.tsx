@@ -27,7 +27,7 @@ export default async function VolunteerActivitiesPage() {
   const past = activities.filter((a) => a.startsAt < now);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">

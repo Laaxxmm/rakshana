@@ -36,7 +36,7 @@ export default async function IncomeTaxIndex() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="compliance" />
       <header>
         <Link

@@ -83,7 +83,6 @@ export function FileUpload({
 }: FileUploadProps) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [clientError, setClientError] = React.useState<string | null>(null);
-  const [pdfThumb, setPdfThumb] = React.useState<string | null>(null);
 
   const handleFiles = React.useCallback(
     async (files: FileList) => {
@@ -107,38 +106,6 @@ export function FileUpload({
 
   const { dragging, handlers } = useDropzone(handleFiles);
 
-  // Lazy PDF thumbnail
-  React.useEffect(() => {
-    if (!current?.url || current.mime !== "application/pdf") {
-      setPdfThumb(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const pdfjs = await import("pdfjs-dist");
-        // Worker source — use a CDN fallback for now; replace with a copied
-        // worker when we audit bundle size in Phase 6.
-        pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
-        const doc = await pdfjs.getDocument(current.url).promise;
-        const page = await doc.getPage(1);
-        const viewport = page.getViewport({ scale: 0.4 });
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: ctx, viewport, canvas }).promise;
-        if (!cancelled) setPdfThumb(canvas.toDataURL("image/png"));
-      } catch {
-        if (!cancelled) setPdfThumb(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [current?.url, current?.mime]);
-
   const displayedError = error ?? clientError;
   const acceptAttr = accept.join(",");
 
@@ -152,10 +119,7 @@ export function FileUpload({
 
       {current ? (
         <div className="flex items-center gap-3 rounded-md border border-border bg-surface p-3">
-          {pdfThumb ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={pdfThumb} alt="" className="h-14 w-10 rounded border border-border" />
-          ) : current.mime?.startsWith("image/") && current.url ? (
+          {current.mime?.startsWith("image/") && current.url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={current.url} alt="" className="h-14 w-14 rounded object-cover border border-border" />
           ) : (

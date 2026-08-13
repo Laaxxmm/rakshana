@@ -86,7 +86,7 @@ export default async function ExpensesPage({
   const canPay = roleHasPermission(scope.role, "expense.markPaid");
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="moneyOut" />
       <header className="flex items-end justify-between gap-4">
         <div>

@@ -24,8 +24,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         <Sidebar organisationName={session.user.organisationName} />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
-          <main className="flex-1 overflow-y-auto px-8 pb-10 pt-2">
-            {children}
+          {/*
+            One content width for the whole app. Pages used to set their own
+            (max-w-5xl here, 6xl there), so switching tabs inside a hub made
+            the page visibly jump. `scrollbar-gutter` reserves the scrollbar
+            lane so a short page is not wider than a long one either.
+          */}
+          <main className="flex-1 overflow-y-auto px-8 pb-10 pt-2 [scrollbar-gutter:stable]">
+            <div className="mx-auto w-full max-w-6xl">{children}</div>
           </main>
         </div>
       </div>

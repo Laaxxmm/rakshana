@@ -48,7 +48,7 @@ export default async function Form10BDIndex() {
   const previousFy = `${Number(a) - 1}-${String(Number(b) - 1).padStart(2, "0")}`;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="compliance" />
       <header className="flex items-end justify-between gap-4">
         <div>

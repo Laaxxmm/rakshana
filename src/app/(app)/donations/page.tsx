@@ -66,7 +66,7 @@ export default async function DonationsPage({
     : null;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="moneyIn" />
       <header className="flex items-end justify-between gap-4">
         <div>

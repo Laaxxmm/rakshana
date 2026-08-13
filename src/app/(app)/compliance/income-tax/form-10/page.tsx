@@ -30,7 +30,7 @@ export default async function Form10Page() {
   const currentFy = getCurrentFY();
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       <header className="flex items-end justify-between gap-4">
         <div>
           <Link

@@ -40,7 +40,7 @@ export default async function RecurringExpensesPage() {
   const vendorNameById = new Map(vendors.map((v) => [v.id, v.name]));
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       <HubNav hub="moneyOut" />
       <header className="flex items-end justify-between gap-4">
         <div>

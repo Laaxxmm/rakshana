@@ -39,7 +39,7 @@ export default async function ReportsPage() {
   });
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="space-y-6">
       <header>
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">
           Insights

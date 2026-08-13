@@ -111,7 +111,7 @@ export default async function ProjectProfilePage({
   const defaultTo = (project.endDate ?? new Date()).toISOString().slice(0, 10);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="space-y-5">
       <Link
         href="/projects"
         className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"

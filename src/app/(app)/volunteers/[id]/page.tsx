@@ -39,7 +39,7 @@ export default async function VolunteerProfilePage({
   if (!volunteer) notFound();
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       <Link
         href="/volunteers"
         className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"

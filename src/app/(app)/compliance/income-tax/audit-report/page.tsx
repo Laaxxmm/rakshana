@@ -31,7 +31,7 @@ export default async function AuditReportPage() {
   });
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="space-y-5">
       <header>
         <Link
           href="/compliance/income-tax"

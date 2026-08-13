@@ -59,6 +59,9 @@ export const SCOPED_MODELS = new Set<string>([
   // Payments
   "PaymentIntent",
 
+  // Sponsorship catalogue
+  "SponsorshipItem",
+
   // System per-tenant
   "Notification",
   "AuditLog",
@@ -81,6 +84,8 @@ export const PARENT_SCOPED_MODELS = new Set<string>([
   "ImpactRecord",
   "VolunteerAssignment",
   "VolunteerCertificate",
+  "DonationLineItem",
+  "ExpenseAttachment",
 ]);
 
 /**

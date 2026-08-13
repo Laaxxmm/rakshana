@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { prisma } from "@/lib/db/prisma";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Vendors — Rakshana" };
 
@@ -43,6 +44,7 @@ export default async function VendorsPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      <HubNav hub="moneyOut" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Accounting</p>

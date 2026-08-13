@@ -37,10 +37,45 @@ function nullableOptional<T extends z.ZodType<string>>(schema: T) {
     .transform((v) => v ?? null);
 }
 
+const optionalPincode = z
+  .preprocess(
+    (v) => (v === null || v === undefined ? null : typeof v === "string" ? v.trim() : v),
+    z.union([z.string(), z.null()]),
+  )
+  .optional()
+  .transform((v) => v ?? null)
+  .refine((v) => v === null || /^\d{6}$/.test(v), "Pincode must be 6 digits");
+
 export const aadhaarLast4Schema = z
   .string()
   .trim()
   .regex(/^\d{4}$/, "Last 4 digits of Aadhaar only");
+
+// ---------------------------------------------------------------------------
+// PAN
+// ---------------------------------------------------------------------------
+
+const PAN_FORMAT_HINT = "PAN must be 5 letters, 4 digits, then 1 letter (e.g. ABCDE1234F)";
+
+/**
+ * A mistyped PAN is the most common donor-entry failure, and "Invalid PAN"
+ * leaves the user counting characters. Name the actual defect instead —
+ * length vs pattern. `panSchema` stays the single source of truth for what is
+ * valid; the PAN itself is never echoed back into the message (it is a
+ * taxpayer identifier and error strings get logged).
+ */
+export const donorPanSchema = z
+  .string()
+  .trim()
+  .transform((s) => s.toUpperCase())
+  .superRefine((s, ctx) => {
+    if (panSchema.safeParse(s).success) return;
+    const why =
+      s.length === 10
+        ? "this one has the right length but the wrong pattern"
+        : `this one is ${s.length < 10 ? "too short" : "too long"} (${s.length} of 10 characters)`;
+    ctx.addIssue({ code: "custom", message: `${PAN_FORMAT_HINT} — ${why}.` });
+  });
 
 // ---------------------------------------------------------------------------
 // Donor types & enums (mirrors prisma)
@@ -74,7 +109,7 @@ export const donorSchema = z
   .object({
     donorType: z.enum(DONOR_TYPES),
     name: z.string().trim().min(1, "Name is required").max(200),
-    pan: nullableOptional(panSchema),
+    pan: nullableOptional(donorPanSchema),
     aadhaarLast4: nullableOptional(aadhaarLast4Schema),
 
     phone: nullableOptional(indianPhoneSchema),
@@ -86,14 +121,7 @@ export const donorSchema = z
     city: optionalText,
     district: optionalText,
     state: optionalText,
-    pincode: z
-      .preprocess(
-        (v) => (v === null || v === undefined ? null : typeof v === "string" ? v.trim() : v),
-        z.union([z.string(), z.null()]),
-      )
-      .optional()
-      .transform((v) => v ?? null)
-      .refine((v) => v === null || /^\d{6}$/.test(v), "Pincode must be 6 digits"),
+    pincode: optionalPincode,
     country: z.string().trim().default("India"),
 
     is80GEligible: z.coerce.boolean().default(true),
@@ -135,20 +163,13 @@ export type DonorInput = z.infer<typeof donorSchema>;
 
 export const miniDonorSchema = z.object({
   donorType: z.enum(DONOR_TYPES),
-  name: z.string().trim().min(1).max(200),
-  pan: nullableOptional(panSchema),
+  name: z.string().trim().min(1, "Name is required").max(200),
+  pan: nullableOptional(donorPanSchema),
   phone: nullableOptional(indianPhoneSchema),
   addressLine1: optionalText,
   city: optionalText,
   state: optionalText,
-  pincode: z
-    .preprocess(
-      (v) => (v === null || v === undefined ? null : typeof v === "string" ? v.trim() : v),
-      z.union([z.string(), z.null()]),
-    )
-    .optional()
-    .transform((v) => v ?? null)
-    .refine((v) => v === null || /^\d{6}$/.test(v), "Pincode must be 6 digits"),
+  pincode: optionalPincode,
 });
 export type MiniDonorInput = z.infer<typeof miniDonorSchema>;
 

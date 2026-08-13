@@ -12,6 +12,9 @@ import {
   markPaidSchema,
   cancelExpenseSchema,
 } from "@/lib/schemas/expense";
+import { storage, storageKey } from "@/lib/storage";
+import { validateUpload, type AllowedMime } from "@/lib/storage/validate";
+import { compressBill } from "@/lib/images/compress";
 import { allocateVoucherNumber } from "@/lib/services/voucher-number";
 import { canAutoApprove, requiredApprovalRole } from "@/lib/services/approval-policy";
 import { computeTds, computeGst } from "@/lib/services/tax-calc";
@@ -248,6 +251,119 @@ export const submitExpense = safeAction
       expenseId: created.id,
       voucherNumber: created.voucherNumber,
       autoApprove,
+    };
+  });
+
+// ---------------------------------------------------------------------------
+// Supporting bills — an expense can carry several (invoice + delivery note +
+// quotation). Uploaded one call at a time so a 6 MB photo never has to share
+// a request body with its siblings.
+// ---------------------------------------------------------------------------
+
+const BILL_ALLOWED: AllowedMime[] = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+];
+// Pre-compression ceiling: raw phone photos land at 3-6 MB, compressBill takes
+// them down to a few hundred KB before anything is written to storage.
+const BILL_MAX = 15 * 1024 * 1024;
+
+export const uploadExpenseBill = safeAction
+  .metadata({ requires: "expense.create" })
+  .inputSchema(
+    z.object({
+      expenseId: z.string().min(1),
+      filename: z.string().trim().min(1).max(200),
+      claimedMime: z.string(),
+      fileBytes: z.string(),
+      /** Free text for the auditor, e.g. "Bill 1 of 3". */
+      pageLabel: z.string().trim().max(60).nullable().default(null),
+    }),
+  )
+  .action(async ({ parsedInput, ctx }) => {
+    // Scoped read first: ExpenseAttachment is parent-scoped, so the expense
+    // lookup is what proves the caller's org owns this voucher.
+    const expense = await prisma.expense.findUniqueOrThrow({
+      where: { id: parsedInput.expenseId },
+      select: { id: true, expenseDate: true },
+    });
+
+    const raw = Buffer.from(parsedInput.fileBytes, "base64");
+    const v = validateUpload(raw, {
+      allowed: BILL_ALLOWED,
+      maxSize: BILL_MAX,
+      claimedMime: parsedInput.claimedMime,
+    });
+    if (!v.ok) throw new Error(v.error);
+
+    const bill = await compressBill(raw);
+
+    // Two-step: the row's id is part of the storage key.
+    const created = await prisma.expenseAttachment.create({
+      data: {
+        expenseId: expense.id,
+        fileUrl: "",
+        storageKey: "",
+        originalName: parsedInput.filename,
+        contentType: bill.contentType,
+        sizeBytes: bill.compressedSize,
+        pageLabel: parsedInput.pageLabel,
+        uploadedById: ctx.scope.userId,
+      },
+    });
+    const key = storageKey.expenseBill(
+      ctx.scope.organisationId,
+      expense.expenseDate,
+      created.id,
+      bill.contentType,
+    );
+    const put = await storage.put(key, bill.buffer, {
+      contentType: bill.contentType,
+      size: bill.compressedSize,
+    });
+    const attachment = await prisma.expenseAttachment.update({
+      where: { id: created.id },
+      data: { fileUrl: put.url, storageKey: key },
+    });
+
+    console.info(
+      `[bill-upload] ${parsedInput.filename} ${bill.originalSize} → ${bill.compressedSize} bytes (${key})`,
+    );
+
+    // The voucher lists its bills, so it is stale the moment one lands.
+    await generateVoucherPdf(expense.id);
+    revalidatePath("/expenses");
+    return { ok: true, id: attachment.id, url: attachment.fileUrl };
+  });
+
+export const listExpenseAttachments = safeAction
+  .metadata({ requires: "expense.view" })
+  .inputSchema(z.object({ expenseId: z.string().min(1) }))
+  .action(async ({ parsedInput }) => {
+    const expense = await prisma.expense.findUniqueOrThrow({
+      where: { id: parsedInput.expenseId },
+      select: {
+        billUrl: true,
+        attachments: {
+          orderBy: { uploadedAt: "asc" },
+          select: {
+            id: true,
+            fileUrl: true,
+            originalName: true,
+            contentType: true,
+            sizeBytes: true,
+            pageLabel: true,
+          },
+        },
+      },
+    });
+    return {
+      ok: true,
+      attachments: expense.attachments,
+      // Pre-ExpenseAttachment vouchers still have their one bill here.
+      legacyBillUrl: expense.attachments.length === 0 ? expense.billUrl : null,
     };
   });
 

@@ -8,14 +8,16 @@ import { toast } from "sonner";
 import {
   IconSearch,
   IconPlus,
+  IconMinus,
   IconX,
   IconUser,
   IconShieldCheck,
   IconChevronDown,
 } from "@tabler/icons-react";
+import { Decimal } from "decimal.js";
 import { recordDonation } from "../actions";
-import { createDonorMini } from "../../donors/actions";
 import { searchDonors } from "./donor-search";
+import { DonorQuickCreate } from "./DonorQuickCreate";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,13 +32,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { FieldError } from "@/components/patterns/FieldError";
+import { actionErrorMessage, actionFieldErrors } from "@/lib/actions/action-error";
 import { formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
 import { DONATION_MODES, DONATION_PURPOSES, IN_KIND_VALUATION_METHODS } from "@/lib/schemas/donation";
 import { MANDATORY_PAN_THRESHOLD } from "@/lib/constants/tax";
 
 type Donor = {
-  id: string;
+  /** null while the donor is only filled in, not yet written — see DonorQuickCreate. */
+  id: string | null;
   name: string;
   donorType: string;
   pan: string | null;
@@ -45,6 +50,9 @@ type Donor = {
   isAnonymousBucket?: boolean;
   lastDonationDate: string | null;
   lifetime: string;
+  /** Present only for a not-yet-saved donor; posted so recordDonation can
+      create donor and donation in one transaction. */
+  draft?: Record<string, unknown>;
 };
 
 type BankAcct = {
@@ -56,6 +64,23 @@ type BankAcct = {
 };
 
 type ProjectItem = { id: string; code: string; name: string };
+
+type SponsorshipItem = {
+  id: string;
+  category: string;
+  label: string;
+  amount: string;
+  unitNoun: string;
+  allowsQuantity: boolean;
+};
+
+/** A picked catalogue row. Amounts stay strings — Decimal does the maths. */
+type PickedLine = { itemId: string; label: string; unitAmount: string; quantity: number };
+
+const SPONSORSHIP_CATEGORY_LABELS: Record<string, string> = {
+  CHILDREN_EDUCATION: "Children's education",
+  COMMUNITY_TRAINING: "Community training",
+};
 
 type Anonymous = {
   donorId: string;
@@ -119,39 +144,18 @@ function thisMondayIso(): string {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * next-safe-action hands back either the formatted (`{ _errors: [] }`) or the
- * flattened (`string[]`) shape depending on config — accept both so a schema
- * message never degrades into a generic failure toast.
- */
-function flattenValidationErrors(raw: unknown): Record<string, string> {
-  if (!raw || typeof raw !== "object") return {};
-  const out: Record<string, string> = {};
-  for (const [field, issue] of Object.entries(raw as Record<string, unknown>)) {
-    if (field === "_errors") continue;
-    const msg = Array.isArray(issue)
-      ? issue[0]
-      : (issue as { _errors?: string[] })?._errors?.[0];
-    if (typeof msg === "string") out[field] = msg;
-  }
-  return out;
-}
-
-function FieldError({ msg }: { msg?: string }) {
-  if (!msg) return null;
-  return <p className="mt-1 text-xs text-[color:var(--danger)]">{msg}</p>;
-}
-
 export function RecordDonationForm({
   fy,
   bankAccounts,
   projects,
+  sponsorshipItems,
   anonymous,
   initialDonor,
 }: {
   fy: string;
   bankAccounts: BankAcct[];
   projects: ProjectItem[];
+  sponsorshipItems: SponsorshipItem[];
   anonymous: Anonymous | null;
   initialDonor: Donor | null;
 }) {
@@ -187,41 +191,43 @@ export function RecordDonationForm({
     }
   }, [search.result]);
 
-  // ----- Mini-donor inline form -----
-  const [miniOpen, setMiniOpen] = React.useState(false);
-  const [miniName, setMiniName] = React.useState("");
-  const [miniPan, setMiniPan] = React.useState("");
-  const [miniPhone, setMiniPhone] = React.useState("");
-  const [miniType, setMiniType] = React.useState("INDIVIDUAL");
-  const createMini = useAction(createDonorMini, {
-    onSuccess: ({ data }) => {
-      if (data?.ok) {
-        toast.success("Donor added");
-        const created = data.donor;
-        setDonor({
-          id: created.id,
-          name: created.name,
-          donorType: created.donorType,
-          pan: created.pan,
-          is80GEligible: true,
-          isFcraEligible: false,
-          lastDonationDate: null,
-          lifetime: "0",
-        });
-        setMiniOpen(false);
-        setDonorOpen(false);
-        setMiniName("");
-        setMiniPan("");
-        setMiniPhone("");
-      }
-    },
-    onError: ({ error }) => toast.error(error.serverError ?? "Could not add donor"),
-  });
+  // ----- Quick-create panel -----
+  const [quickOpen, setQuickOpen] = React.useState(false);
+  const [quickName, setQuickName] = React.useState("");
 
   // ----- Form fields — defaults make the collapsed path valid on its own -----
   const [donationDate, setDonationDate] = React.useState(todayIso());
   const [amountStr, setAmountStr] = React.useState("");
-  const amountNum = Number(amountStr) || 0;
+
+  // ----- Sponsorship quick-select -----
+  const [lines, setLines] = React.useState<PickedLine[]>([]);
+  const linesTotal = lines.reduce(
+    (sum, l) => sum.plus(new Decimal(l.unitAmount).times(l.quantity)),
+    new Decimal(0),
+  );
+  // Picked items own the amount; with none, free entry is untouched.
+  const amount = lines.length > 0 ? linesTotal.toFixed(2) : amountStr;
+  const amountNum = Number(amount) || 0;
+
+  function addLine(item: SponsorshipItem) {
+    setLines((prev) => {
+      const existing = prev.find((l) => l.itemId === item.id);
+      if (existing) {
+        if (!item.allowsQuantity) return prev;
+        return prev.map((l) => (l.itemId === item.id ? { ...l, quantity: l.quantity + 1 } : l));
+      }
+      return [
+        ...prev,
+        { itemId: item.id, label: item.label, unitAmount: item.amount, quantity: 1 },
+      ];
+    });
+  }
+
+  function setQuantity(itemId: string, quantity: number) {
+    setLines((prev) =>
+      prev.map((l) => (l.itemId === itemId ? { ...l, quantity: Math.max(1, quantity) } : l)),
+    );
+  }
   const [mode, setMode] = React.useState<(typeof DONATION_MODES)[number]>("UPI");
   const [paymentRef, setPaymentRef] = React.useState("");
   const [bankAccountId, setBankAccountId] = React.useState<string>(
@@ -298,6 +304,7 @@ export function RecordDonationForm({
       });
       // Reset for "Record another"; keep date + mode pre-filled.
       setAmountStr("");
+      setLines([]);
       setPaymentRef("");
       setRemarks("");
       setFieldErrors({});
@@ -306,13 +313,13 @@ export function RecordDonationForm({
       // Zod field errors are surfaced in place (and the disclosure is opened)
       // so the user sees WHICH field is wrong — e.g. UPI/NEFT need a payment
       // reference. A generic "Could not record donation" hides that.
-      const errors = flattenValidationErrors(error.validationErrors);
+      const errors = actionFieldErrors(error);
       if (Object.keys(errors).length > 0) {
         reportErrors(errors);
         return;
       }
       setFieldErrors({});
-      toast.error(error.serverError ?? "Could not record donation");
+      toast.error(actionErrorMessage(error, "Could not record donation"));
     },
   });
 
@@ -322,15 +329,26 @@ export function RecordDonationForm({
       reportErrors({ donorId: "Pick a donor" });
       return;
     }
-    if (!amountStr || amountNum <= 0) {
+    if (amountNum <= 0) {
       reportErrors({ amount: "Enter an amount" });
       return;
     }
     setFieldErrors({});
     submit.execute({
-      donorId: effectiveDonor.id,
+      // An unsaved donor travels as a payload, not an id — the server
+      // creates it inside the donation transaction so an abandoned form
+      // never leaves a donor behind.
+      ...(effectiveDonor.id
+        ? { donorId: effectiveDonor.id }
+        : { newDonor: effectiveDonor.draft as never }),
       donationDate: new Date(donationDate),
-      amount: amountStr,
+      amount,
+      lineItems: lines.map((l) => ({
+        sponsorshipItemId: l.itemId,
+        label: l.label,
+        unitAmount: l.unitAmount,
+        quantity: l.quantity,
+      })),
       mode,
       bankAccountId: showBankField ? effectiveBankId : null,
       paymentRef: showRefField ? paymentRef || null : null,
@@ -463,9 +481,9 @@ export function RecordDonationForm({
                       <button
                         type="button"
                         onClick={() => {
-                          setMiniOpen(true);
+                          setQuickOpen(true);
                           setDonorOpen(false);
-                          setMiniName(donorQuery);
+                          setQuickName(donorQuery);
                         }}
                         className="flex w-full items-center gap-2 px-3 py-2 text-sm text-primary hover:bg-primary-soft/40"
                       >
@@ -480,65 +498,35 @@ export function RecordDonationForm({
             )}
             <FieldError msg={fieldErrors.donorId} />
 
-            {miniOpen && !isAnonymous ? (
-              <div className="rounded-md border border-primary/30 bg-primary-soft/30 p-4 space-y-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-ink-subtle">Add donor</p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <Label className="text-xs">Type</Label>
-                    <Select value={miniType} onValueChange={(v) => v && setMiniType(v)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {["INDIVIDUAL", "CORPORATE", "TRUST", "HUF", "NRI"].map((t) => (
-                          <SelectItem key={t} value={t}>
-                            {t}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Name</Label>
-                    <Input value={miniName} onChange={(e) => setMiniName(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">PAN</Label>
-                    <Input value={miniPan} onChange={(e) => setMiniPan(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Phone</Label>
-                    <Input value={miniPhone} onChange={(e) => setMiniPhone(e.target.value)} />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setMiniOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={createMini.isExecuting || miniName.trim().length === 0}
-                    onClick={() =>
-                      createMini.execute({
-                        donorType: miniType as never,
-                        name: miniName.trim(),
-                        pan: miniPan || null,
-                        phone: miniPhone || null,
-                        addressLine1: null,
-                        city: null,
-                        state: null,
-                        pincode: null,
-                      } as never)
-                    }
-                  >
-                    Save donor
-                  </Button>
-                </div>
-              </div>
+            {quickOpen && !isAnonymous ? (
+              <DonorQuickCreate
+                initialName={quickName}
+                onCancel={() => setQuickOpen(false)}
+                onCreated={(created) => {
+                  setDonor({
+                    ...created,
+                    is80GEligible: true,
+                    isFcraEligible: false,
+                    lastDonationDate: null,
+                    lifetime: "0",
+                  });
+                  setQuickOpen(false);
+                  setDonorOpen(false);
+                  setQuickName("");
+                }}
+              />
             ) : null}
           </div>
+
+          {/* Sponsorship menu — the fast path. Free entry stays below. */}
+          <SponsorshipPicker
+            items={sponsorshipItems}
+            lines={lines}
+            onAdd={addLine}
+            onQuantity={setQuantity}
+            onRemove={(itemId) => setLines((prev) => prev.filter((l) => l.itemId !== itemId))}
+            onClear={() => setLines([])}
+          />
 
           {/* Amount */}
           <div className="space-y-1">
@@ -554,13 +542,16 @@ export function RecordDonationForm({
                 id="amount"
                 inputMode="decimal"
                 placeholder="0"
-                value={amountStr}
+                value={amount}
+                readOnly={lines.length > 0}
                 onChange={(e) => setAmountStr(e.target.value)}
-                className="font-display text-3xl h-14 max-w-[260px]"
+                className={`font-display text-3xl h-14 max-w-[260px] ${
+                  lines.length > 0 ? "bg-surface-sunken text-ink-muted" : ""
+                }`}
               />
             </div>
             {amountNum > 0 ? (
-              <p className="text-xs italic text-ink-muted">{inrInWords(amountStr)}</p>
+              <p className="text-xs italic text-ink-muted">{inrInWords(amount)}</p>
             ) : null}
             <FieldError msg={fieldErrors.amount} />
             {panWarning ? (
@@ -832,7 +823,7 @@ export function RecordDonationForm({
 
       <div className="sticky bottom-0 flex items-center justify-between gap-2 rounded-md border border-border bg-surface p-3">
         <p className="text-[11px] text-ink-subtle">
-          FY {fy} · {amountNum > 0 ? formatINRWithSymbol(amountStr, { paise: true }) : "—"} · receipt
+          FY {fy} · {amountNum > 0 ? formatINRWithSymbol(amount, { paise: true }) : "—"} · receipt
           assigned on save
         </p>
         <Button type="submit" disabled={submit.isExecuting}>
@@ -840,6 +831,188 @@ export function RecordDonationForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * The trust's fixed menu. Tapping a row adds a line; the lines drive the
+ * Amount field above, which is why every total here is Decimal maths and not
+ * arithmetic on floats.
+ */
+function SponsorshipPicker({
+  items,
+  lines,
+  onAdd,
+  onQuantity,
+  onRemove,
+  onClear,
+}: {
+  items: SponsorshipItem[];
+  lines: PickedLine[];
+  onAdd: (item: SponsorshipItem) => void;
+  onQuantity: (itemId: string, quantity: number) => void;
+  onRemove: (itemId: string) => void;
+  onClear: () => void;
+}) {
+  if (items.length === 0) return null;
+
+  const categories = new Map<string, SponsorshipItem[]>();
+  for (const item of items) {
+    const bucket = categories.get(item.category);
+    if (bucket) bucket.push(item);
+    else categories.set(item.category, [item]);
+  }
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const pickedIds = new Set(lines.map((l) => l.itemId));
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <Label className="text-xs uppercase tracking-[0.16em] text-ink-subtle">Sponsorships</Label>
+        {lines.length > 0 ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-[11px] text-primary hover:underline"
+          >
+            Clear items
+          </button>
+        ) : null}
+      </div>
+
+      {lines.length > 0 ? (
+        <ul className="space-y-2 rounded-[14px] bg-surface-sunken p-2.5">
+          {lines.map((line) => {
+            const unitNoun = byId.get(line.itemId)?.unitNoun;
+            const allowsQuantity = byId.get(line.itemId)?.allowsQuantity ?? true;
+            return (
+              <li key={line.itemId} className="flex items-center gap-3">
+                <span className="min-w-0 flex-1 truncate text-sm text-ink">{line.label}</span>
+                {allowsQuantity ? (
+                  <QuantityStepper
+                    label={line.label}
+                    quantity={line.quantity}
+                    unitNoun={unitNoun}
+                    onChange={(q) => onQuantity(line.itemId, q)}
+                  />
+                ) : null}
+                <span className="w-24 shrink-0 text-right font-mono text-sm tabular-nums text-ink">
+                  {formatINRWithSymbol(new Decimal(line.unitAmount).times(line.quantity), {
+                    paise: false,
+                  })}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Remove ${line.label}`}
+                  onClick={() => onRemove(line.itemId)}
+                >
+                  <IconX size={14} />
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      <div className="space-y-3">
+        {[...categories].map(([category, categoryItems]) => (
+          <div key={category} className="space-y-1.5">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-ink-subtle">
+              {SPONSORSHIP_CATEGORY_LABELS[category] ?? category.replace(/_/g, " ")}
+            </p>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {categoryItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onAdd(item)}
+                  className={`flex items-center justify-between gap-3 rounded-[12px] px-3 py-2.5 text-left transition-colors ${
+                    pickedIds.has(item.id)
+                      ? "bg-primary-soft text-primary"
+                      : "bg-surface-sunken text-ink hover:bg-primary-soft hover:text-primary"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                  <span className="shrink-0 font-mono text-xs tabular-nums">
+                    {formatINRWithSymbol(item.amount, { paise: false })}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function QuantityStepper({
+  label,
+  quantity,
+  unitNoun,
+  onChange,
+}: {
+  label: string;
+  quantity: number;
+  unitNoun?: string;
+  onChange: (quantity: number) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <div className="flex items-center rounded-full bg-surface shadow-[var(--shadow-sm)]">
+        <StepperButton
+          ariaLabel={`Decrease ${label}`}
+          disabled={quantity <= 1}
+          onClick={() => onChange(quantity - 1)}
+        >
+          <IconMinus size={13} />
+        </StepperButton>
+        <input
+          inputMode="numeric"
+          aria-label={`Quantity for ${label}`}
+          value={quantity}
+          // Selecting on focus keeps direct typing working: the first keystroke
+          // replaces the value instead of appending to it.
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => onChange(parseInt(e.target.value, 10) || 1)}
+          className="w-9 bg-transparent text-center font-mono text-sm tabular-nums text-ink outline-none"
+        />
+        <StepperButton ariaLabel={`Increase ${label}`} onClick={() => onChange(quantity + 1)}>
+          <IconPlus size={13} />
+        </StepperButton>
+      </div>
+      {unitNoun ? (
+        <span className="hidden text-[11px] text-ink-subtle sm:inline">
+          {quantity === 1 ? unitNoun : `${unitNoun}s`}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function StepperButton({
+  ariaLabel,
+  disabled,
+  onClick,
+  children,
+}: {
+  ariaLabel: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onClick}
+      className="flex h-7 w-7 items-center justify-center rounded-full text-ink-muted hover:text-primary disabled:opacity-30"
+    >
+      {children}
+    </button>
   );
 }
 

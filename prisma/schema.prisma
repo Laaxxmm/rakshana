@@ -127,6 +127,7 @@ model Organisation {
   auditLogs          AuditLog[]
   communications     Communication[]
   complianceItems    ComplianceItem[]
+  sponsorshipItems   SponsorshipItem[]
 
   @@index([status])
 }
@@ -512,6 +513,8 @@ model Donation {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
+  lineItems          DonationLineItem[]
+
   @@unique([organisationId, receiptNumber])
   @@index([organisationId, donationDate])
   @@index([organisationId, donorId])
@@ -618,6 +621,8 @@ model Expense {
   paymentRef          String?
   paidAt              DateTime?
 
+  /// Deprecated — superseded by ExpenseAttachment (an expense has many bills).
+  /// Still read by existing rows and the voucher PDF; drop once both migrate.
   billUrl             String?
   description         String?
 
@@ -630,6 +635,7 @@ model Expense {
 
   status              ExpenseStatus @default(DRAFT)
   approvals           ExpenseApproval[]
+  attachments         ExpenseAttachment[]
   tdsEntry            TdsEntry?
 
   createdById         String?
@@ -1717,4 +1723,77 @@ enum PaymentIntentStatus {
   CREATED
   PAID
   FAILED
+}
+
+
+// =====================================================================
+// 13. SPONSORSHIP CATALOGUE + ITEMISED GIVING + EXPENSE BILLS
+// =====================================================================
+
+/// The trust's published donation menu. Prices are revised every year, so
+/// this lives in the database rather than a constants file.
+model SponsorshipItem {
+  id             String   @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  category       SponsorshipCategory
+  label          String
+  amount         Decimal  @db.Decimal(18, 2)
+  unitNoun       String   // "child", "woman", "month" — rendered next to the quantity
+  allowsQuantity Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lineItems      DonationLineItem[]
+
+  @@unique([organisationId, label])
+  @@index([organisationId, category, sortOrder])
+}
+
+enum SponsorshipCategory {
+  CHILDREN_EDUCATION
+  COMMUNITY_TRAINING
+}
+
+/// What the donor actually sponsored, so a receipt can itemise and an
+/// auditor can trace it. `label` and `unitAmount` are snapshots: when the
+/// trust revises the catalogue next year, last year's receipt must still
+/// show what was actually paid.
+model DonationLineItem {
+  id                String   @id @default(cuid())
+  donationId        String
+  donation          Donation @relation(fields: [donationId], references: [id], onDelete: Cascade)
+
+  sponsorshipItemId String?  // nullable so retiring a catalogue row never destroys history
+  sponsorshipItem   SponsorshipItem? @relation(fields: [sponsorshipItemId], references: [id])
+
+  label             String
+  unitAmount        Decimal  @db.Decimal(18, 2)
+  quantity          Int
+  lineTotal         Decimal  @db.Decimal(18, 2)
+  createdAt         DateTime @default(now())
+
+  @@index([donationId])
+}
+
+/// One row per bill backing an expense — a single voucher routinely has
+/// several invoices behind it.
+model ExpenseAttachment {
+  id            String   @id @default(cuid())
+  expenseId     String
+  expense       Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  fileUrl       String
+  storageKey    String
+  originalName  String
+  contentType   String
+  sizeBytes     Int
+  pageLabel     String?  // free text, e.g. "Invoice 1 of 3"
+  uploadedAt    DateTime @default(now())
+  uploadedById  String?
+
+  @@index([expenseId])
 }

@@ -15,6 +15,7 @@ import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { formatIST } from "@/lib/format/date";
 import { regenerateCalendarAction } from "./actions";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Compliance calendar — Rakshana" };
 
@@ -43,6 +44,7 @@ export default async function CalendarPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
+      <HubNav hub="compliance" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <Link href="/compliance" className="text-sm text-ink-muted hover:text-ink">

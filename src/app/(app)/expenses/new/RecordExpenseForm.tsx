@@ -4,8 +4,11 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
 import { toast } from "sonner";
-import { IconSearch, IconX, IconUser } from "@tabler/icons-react";
+import { IconSearch, IconX, IconUser, IconFile } from "@tabler/icons-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { FileUpload, humanSize } from "@/components/patterns/file-upload";
+import { FieldError } from "@/components/patterns/FieldError";
+import { actionErrorMessage, actionFieldErrors } from "@/lib/actions/action-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,8 +25,12 @@ import {
 import { formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
 import { TDS_SECTIONS, TDS_SECTION_KEYS, GST_RATES } from "@/lib/constants/tax";
 import { PAYMENT_MODES } from "@/lib/schemas/expense";
-import { submitExpense } from "../actions";
+import { submitExpense, uploadExpenseBill } from "../actions";
+import { fileToActionPayload } from "@/app/(app)/settings/organisation/_upload";
 import { searchVendors } from "./vendor-search";
+
+const BILL_ACCEPT = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;
+const BILL_MAX_BYTES = 15 * 1024 * 1024;
 
 type Vendor = {
   id: string;
@@ -68,11 +75,6 @@ const ADVANCED_FIELDS = new Set([
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function FieldError({ msg }: { msg?: string }) {
-  if (!msg) return null;
-  return <p className="mt-1 text-[11px] text-[color:var(--danger)]">{msg}</p>;
 }
 
 export function RecordExpenseForm({
@@ -142,6 +144,12 @@ export function RecordExpenseForm({
   const [pettyCashFloatId, setPettyCashFloatId] = React.useState<string>(floats[0]?.id ?? "");
   const [description, setDescription] = React.useState("");
 
+  // Bills stay in the browser until the voucher exists — an ExpenseAttachment
+  // row needs an expenseId, and a half-uploaded bill on an abandoned form is
+  // an orphan nobody cleans up.
+  const [bills, setBills] = React.useState<File[]>([]);
+  const [uploading, setUploading] = React.useState(false);
+
   const [moreOpen, setMoreOpen] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
 
@@ -184,34 +192,48 @@ export function RecordExpenseForm({
   const billRequired = gross > Number(billRequiredThreshold);
 
   // ----- Submit -----
+  // One call per bill: a single request carrying five phone photos would blow
+  // past the Server Action body limit long before the server could compress
+  // them. Failures are reported by name so the user knows what to re-attach.
+  async function uploadBills(expenseId: string): Promise<string[]> {
+    const failed: string[] = [];
+    for (const [i, file] of bills.entries()) {
+      const payload = await fileToActionPayload(file);
+      const res = await uploadExpenseBill({
+        expenseId,
+        ...payload,
+        pageLabel: `Bill ${i + 1} of ${bills.length}`,
+      });
+      if (!res?.data?.ok) failed.push(file.name);
+    }
+    return failed;
+  }
+
   const submit = useAction(submitExpense, {
-    onSuccess: ({ data }) => {
+    onSuccess: async ({ data }) => {
       if (!data?.ok) return;
+      setUploading(true);
+      const failed = await uploadBills(data.expenseId).finally(() => setUploading(false));
       toast.success(
         data.autoApprove
           ? `Voucher ${data.voucherNumber} approved`
           : `Voucher ${data.voucherNumber} submitted for approval`,
       );
+      if (failed.length > 0) {
+        toast.error(`Voucher saved, but ${failed.join(", ")} could not be attached.`);
+      }
       router.push(`/expenses?open=${data.expenseId}`);
     },
     onError: ({ error }) => {
       // Map Zod field errors onto the fields themselves so a rule that fires
       // inside "More options" (payment ref, bank, description) opens it.
-      const v = error.validationErrors as Record<string, { _errors?: string[] }> | undefined;
-      const next: Record<string, string> = {};
-      if (v) {
-        for (const [field, issue] of Object.entries(v)) {
-          if (field === "_errors") continue;
-          const msg = issue?._errors?.[0];
-          if (msg) next[field] = msg;
-        }
-      }
+      const next = actionFieldErrors(error);
       if (Object.keys(next).length > 0) {
         showErrors(next);
         toast.error(Object.values(next)[0]);
         return;
       }
-      toast.error(error.serverError ?? "Could not save");
+      toast.error(actionErrorMessage(error, "Could not save"));
     },
   });
 
@@ -381,10 +403,10 @@ export function RecordExpenseForm({
               <p className="mt-1 text-xs italic text-ink-muted">{inrInWords(grossAmount)}</p>
             ) : null}
             <FieldError msg={errors.grossAmount} />
-            {billRequired ? (
+            {billRequired && bills.length === 0 ? (
               <p className="mt-1 text-[11px] text-[color:var(--warning)]">
-                Bill upload required above ₹{Number(billRequiredThreshold).toLocaleString("en-IN")}.
-                Phase 3.5 will wire the upload control — for now the voucher will submit without it.
+                Attach the bill below — required above ₹
+                {Number(billRequiredThreshold).toLocaleString("en-IN")}.
               </p>
             ) : null}
           </div>
@@ -431,6 +453,49 @@ export function RecordExpenseForm({
             </Select>
             <FieldError msg={errors.categoryId} />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Supporting bills — audit wants every page of paper behind the payment */}
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <FileUpload
+            multiple
+            label="Supporting bills"
+            onSelect={(file) => setBills((prev) => [...prev, file])}
+            accept={BILL_ACCEPT}
+            maxBytes={BILL_MAX_BYTES}
+            pending={uploading}
+            hint="Invoice, delivery note, quotation — attach every page. Photos are compressed on upload."
+          />
+          {bills.length > 0 ? (
+            <ul className="space-y-1.5">
+              {bills.map((file, i) => (
+                <li
+                  key={`${file.name}-${file.lastModified}-${i}`}
+                  className="flex items-center gap-3 rounded-[14px] bg-surface-sunken px-3 py-2"
+                >
+                  <IconFile size={16} className="shrink-0 text-ink-subtle" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">{file.name}</p>
+                    <p className="text-[11px] text-ink-subtle">
+                      Bill {i + 1} of {bills.length} · {humanSize(file.size)}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remove ${file.name}`}
+                    disabled={uploading}
+                    onClick={() => setBills((prev) => prev.filter((_, j) => j !== i))}
+                  >
+                    <IconX size={14} />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -664,9 +729,14 @@ export function RecordExpenseForm({
       </Card>
 
       <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface p-3">
-        <p className="text-[11px] text-ink-subtle">Voucher assigned on save</p>
-        <Button type="submit" disabled={submit.isExecuting}>
-          {submit.isExecuting ? "Saving…" : "Submit"}
+        <p className="text-[11px] text-ink-subtle">
+          Voucher assigned on save
+          {bills.length > 0
+            ? ` · ${bills.length} bill${bills.length === 1 ? "" : "s"} attached`
+            : ""}
+        </p>
+        <Button type="submit" disabled={submit.isExecuting || uploading}>
+          {uploading ? "Attaching bills…" : submit.isExecuting ? "Saving…" : "Submit"}
         </Button>
       </div>
     </form>

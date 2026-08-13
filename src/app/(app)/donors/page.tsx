@@ -16,6 +16,7 @@ import {
 import { prisma } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Donors — Rakshana" };
 
@@ -45,6 +46,7 @@ export default async function DonorsPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      <HubNav hub="moneyIn" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Fundraising</p>

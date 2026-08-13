@@ -9,12 +9,11 @@
  * matches the path).
  */
 
+import { formatIST } from "@/lib/format/date";
+
 const SAFE_EXT = /^[a-z0-9]{1,8}$/;
 
-function ext(filename: string, contentType: string): string {
-  const fromName = filename.split(".").pop()?.toLowerCase() ?? "";
-  if (SAFE_EXT.test(fromName)) return fromName;
-  // Fall back from content-type
+function extFromMime(contentType: string): string {
   const map: Record<string, string> = {
     "application/pdf": "pdf",
     "image/jpeg": "jpg",
@@ -22,6 +21,11 @@ function ext(filename: string, contentType: string): string {
     "image/webp": "webp",
   };
   return map[contentType] ?? "bin";
+}
+
+function ext(filename: string, contentType: string): string {
+  const fromName = filename.split(".").pop()?.toLowerCase() ?? "";
+  return SAFE_EXT.test(fromName) ? fromName : extFromMime(contentType);
 }
 
 export const storageKey = {
@@ -42,6 +46,23 @@ export const storageKey = {
   },
   donorDocument(orgId: string, docId: string, filename: string, contentType: string): string {
     return `org/${orgId}/donors/${docId}.${ext(filename, contentType)}`;
+  },
+  /**
+   * Supporting bills for an expense, partitioned by the month of the EXPENSE
+   * DATE (not the upload date) so an auditor asking for "March 2027" gets one
+   * prefix — a bill for March keyed in April would sit outside it.
+   *
+   * The extension comes from the stored content type, not the uploaded
+   * filename: a JPEG photo is written as WebP, and `.jpg` on WebP bytes would
+   * mislead anyone browsing the bucket.
+   */
+  expenseBill(
+    orgId: string,
+    expenseDate: Date,
+    attachmentId: string,
+    contentType: string,
+  ): string {
+    return `org/${orgId}/bills/${formatIST(expenseDate, "yyyy/MM")}/${attachmentId}.${extFromMime(contentType)}`;
   },
   utilisationCert(orgId: string, projectId: string, certId: string): string {
     return `org/${orgId}/utilisation-certs/${projectId}-${certId}.pdf`;
@@ -100,6 +121,7 @@ export function parseStorageKey(key: string):
   | { orgId: string; kind: "branding"; asset: "logo" | "signature" }
   | { orgId: string; kind: "receipts"; donationId: string; archive: boolean }
   | { orgId: string; kind: "donors"; docId: string }
+  | { orgId: string; kind: "bills"; year: string; month: string; attachmentId: string }
   | { orgId: string; kind: "compliance"; sub: string }
   | { orgId: string; kind: "utilisation-certs"; suffix: string }
   | { orgId: string; kind: "volunteer-certs"; suffix: string }
@@ -130,6 +152,15 @@ export function parseStorageKey(key: string):
   if (parts[2] === "donors" && parts[3]) {
     const docId = parts[3].split(".")[0];
     return { orgId, kind: "donors", docId };
+  }
+  if (parts[2] === "bills" && parts[3] && parts[4] && parts[5]) {
+    return {
+      orgId,
+      kind: "bills",
+      year: parts[3],
+      month: parts[4],
+      attachmentId: parts[5].split(".")[0],
+    };
   }
   if (parts[2] === "compliance" && parts.length >= 4) {
     return { orgId, kind: "compliance", sub: parts.slice(3).join("/") };

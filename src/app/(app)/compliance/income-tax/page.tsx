@@ -8,6 +8,7 @@ import { requireOrgScope } from "@/lib/auth/scope";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST, getCurrentFY } from "@/lib/format/date";
 import { computeEightyFiveRule } from "@/lib/compliance/eighty-five-rule";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Income Tax — Rakshana" };
 
@@ -36,6 +37,7 @@ export default async function IncomeTaxIndex() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
+      <HubNav hub="compliance" />
       <header>
         <Link
           href="/compliance"

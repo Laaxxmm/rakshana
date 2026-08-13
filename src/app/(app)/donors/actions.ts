@@ -17,6 +17,11 @@ function isAnonymousBucket(pan: string | null | undefined): boolean {
   return pan === ANONYMOUS_PAN;
 }
 
+/** The only unique index on Donor is PAN, so a P2002 is always a clashing PAN. */
+function isDuplicatePan(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+}
+
 export const createDonor = safeAction
   .metadata({ requires: "donor.create" })
   .inputSchema(donorSchema)
@@ -28,7 +33,7 @@ export const createDonor = safeAction
       revalidatePath("/donors");
       return { ok: true, id: created.id };
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      if (isDuplicatePan(err)) {
         throw new Error(
           "A donor with this PAN already exists. Search the donor list and edit the existing record.",
         );
@@ -52,7 +57,7 @@ export const updateDonor = safeAction
       revalidatePath(`/donors/${id}`);
       return { ok: true };
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      if (isDuplicatePan(err)) {
         throw new Error("Another donor already uses this PAN.");
       }
       throw err;
@@ -94,8 +99,8 @@ export const createDonorMini = safeAction
         },
       };
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        throw new Error("A donor with this PAN already exists.");
+      if (isDuplicatePan(err)) {
+        throw new Error("A donor with this PAN already exists — search for them instead.");
       }
       throw err;
     }

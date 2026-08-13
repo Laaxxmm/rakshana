@@ -19,31 +19,42 @@ export default async function RecordDonationPage({
   const fy = getCurrentFY();
   const { start, end } = getFinancialYearRange(fy);
 
-  const [bankAccounts, projects, anonymousDonor, anonymousTotals, fyTotals, selectedDonor] =
-    await Promise.all([
-      prisma.bankAccount.findMany({
-        where: { isActive: true },
-        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-      }),
-      prisma.project.findMany({
-        where: { status: { in: ["PLANNED", "ACTIVE"] } },
-        orderBy: { name: "asc" },
-      }),
-      prisma.donor.findFirst({ where: { isAnonymousBucket: true } }),
-      prisma.donation.aggregate({
-        _sum: { amount: true },
-        where: {
-          donationDate: { gte: start, lt: end },
-          status: { not: "CANCELLED" },
-          donor: { isAnonymousBucket: true },
-        },
-      }),
-      prisma.donation.aggregate({
-        _sum: { amount: true },
-        where: { donationDate: { gte: start, lt: end }, status: { not: "CANCELLED" } },
-      }),
-      donorId ? prisma.donor.findUnique({ where: { id: donorId } }) : Promise.resolve(null),
-    ]);
+  const [
+    bankAccounts,
+    projects,
+    sponsorshipItems,
+    anonymousDonor,
+    anonymousTotals,
+    fyTotals,
+    selectedDonor,
+  ] = await Promise.all([
+    prisma.bankAccount.findMany({
+      where: { isActive: true },
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    }),
+    prisma.project.findMany({
+      where: { status: { in: ["PLANNED", "ACTIVE"] } },
+      orderBy: { name: "asc" },
+    }),
+    prisma.sponsorshipItem.findMany({
+      where: { isActive: true },
+      orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { label: "asc" }],
+    }),
+    prisma.donor.findFirst({ where: { isAnonymousBucket: true } }),
+    prisma.donation.aggregate({
+      _sum: { amount: true },
+      where: {
+        donationDate: { gte: start, lt: end },
+        status: { not: "CANCELLED" },
+        donor: { isAnonymousBucket: true },
+      },
+    }),
+    prisma.donation.aggregate({
+      _sum: { amount: true },
+      where: { donationDate: { gte: start, lt: end }, status: { not: "CANCELLED" } },
+    }),
+    donorId ? prisma.donor.findUnique({ where: { id: donorId } }) : Promise.resolve(null),
+  ]);
 
   const anonTotal = Number(anonymousTotals._sum.amount ?? 0);
   const fyTotal = Number(fyTotals._sum.amount ?? 0);
@@ -77,6 +88,14 @@ export default async function RecordDonationPage({
           isPrimary: b.isPrimary,
         }))}
         projects={projects.map((p) => ({ id: p.id, code: p.code, name: p.name }))}
+        sponsorshipItems={sponsorshipItems.map((s) => ({
+          id: s.id,
+          category: s.category,
+          label: s.label,
+          amount: s.amount.toString(),
+          unitNoun: s.unitNoun,
+          allowsQuantity: s.allowsQuantity,
+        }))}
         anonymous={
           anonymousDonor
             ? {

@@ -15,6 +15,7 @@ import { prisma } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST, getCurrentFY } from "@/lib/format/date";
 import { NewFilingButton } from "./NewFilingButton";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Form 10BD — Rakshana" };
 
@@ -48,6 +49,7 @@ export default async function Form10BDIndex() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
+      <HubNav hub="compliance" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">

@@ -16,6 +16,7 @@ import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
 import { TopUpDialog } from "./TopUpDialog";
 import { NewFloatDialog } from "./NewFloatDialog";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Petty cash — Rakshana" };
 
@@ -50,6 +51,7 @@ export default async function PettyCashPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
+      <HubNav hub="moneyOut" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Accounting</p>

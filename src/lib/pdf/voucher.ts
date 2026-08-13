@@ -1,7 +1,8 @@
 import "server-only";
 import PDFDocument from "pdfkit";
+import type { Prisma } from "@prisma/client";
 import { prismaUnsafe } from "@/lib/db/prisma";
-import { storage, storageKey } from "@/lib/storage";
+import { storage } from "@/lib/storage";
 import { formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
 
@@ -34,63 +35,53 @@ const COLORS = {
   success: "#2F7D5E",
 } as const;
 
+const VOUCHER_INCLUDE = {
+  organisation: true,
+  vendor: true,
+  category: true,
+  project: true,
+  bankAccount: true,
+  pettyCashFloat: true,
+  approvals: {
+    orderBy: { decidedAt: "asc" },
+    include: { approver: { select: { id: true, name: true } } },
+  },
+  attachments: { orderBy: { uploadedAt: "asc" } },
+  tdsEntry: true,
+} satisfies Prisma.ExpenseInclude;
+
+type LoadedExpense = Prisma.ExpenseGetPayload<{ include: typeof VOUCHER_INCLUDE }>;
+
 export async function generateVoucherPdf(expenseId: string): Promise<VoucherGenerateResult> {
   const expense = await prismaUnsafe.expense.findUnique({
     where: { id: expenseId },
-    include: {
-      organisation: true,
-      vendor: true,
-      category: true,
-      project: true,
-      bankAccount: true,
-      pettyCashFloat: true,
-      approvals: { orderBy: { decidedAt: "asc" }, include: { approver: { select: { id: true, name: true } } } },
-      tdsEntry: true,
-    },
+    include: VOUCHER_INCLUDE,
   });
   if (!expense) throw new Error(`Expense ${expenseId} not found`);
 
   const buffer = await renderPdf(expense);
-  const key = storageKey.donationReceipt(expense.organisationId, "voucher-" + expense.id)
-    // small naming twist — use a separate prefix so the file isn't mistaken for a receipt
-    .replace("/receipts/", "/vouchers/");
-  // Build the key directly instead — keeps the path layout explicit.
-  const properKey = `org/${expense.organisationId}/vouchers/${expense.id}.pdf`;
-
-  const stored = await storage.put(properKey, buffer, {
+  const key = `org/${expense.organisationId}/vouchers/${expense.id}.pdf`;
+  const stored = await storage.put(key, buffer, {
     contentType: "application/pdf",
     size: buffer.length,
   });
 
-  // Stash the voucher URL on the expense (we reuse `billUrl` field? no — that's the
-  // bill. Persist on a transient field via metadata? We'll re-read from storage on
-  // demand; no schema change for Phase 3).
-  void stored;
-  void key;
-  return { buffer, storageKey: properKey, url: stored.url };
+  return { buffer, storageKey: key, url: stored.url };
 }
 
-type LoadedExpense = NonNullable<Awaited<ReturnType<typeof loadExpenseTyped>>>;
-function loadExpenseTyped() {
-  // Pure type-only helper — never executes; just gives us a typed shape.
-  return Promise.resolve(null as unknown);
-}
-
-async function renderPdf(expense: Awaited<ReturnType<typeof prismaUnsafe.expense.findUnique>> & {
-  organisation: NonNullable<unknown>;
-}): Promise<Buffer> {
+async function renderPdf(expense: LoadedExpense): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
       margin: MARGIN,
-      info: { Title: `Voucher ${(expense as { voucherNumber: string }).voucherNumber}` },
+      info: { Title: `Voucher ${expense.voucherNumber}` },
     });
     const chunks: Buffer[] = [];
     doc.on("data", (c) => chunks.push(c as Buffer));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
     try {
-      buildVoucher(doc, expense as LoadedExpense);
+      buildVoucher(doc, expense);
     } catch (err) {
       doc.end();
       reject(err);
@@ -100,66 +91,7 @@ async function renderPdf(expense: Awaited<ReturnType<typeof prismaUnsafe.expense
   });
 }
 
-function buildVoucher(doc: PDFKit.PDFDocument, e: LoadedExpense) {
-  const exp = e as unknown as {
-    voucherNumber: string;
-    expenseDate: Date;
-    grossAmount: { toString(): string };
-    tdsAmount: { toString(): string };
-    tdsSection: string | null;
-    tdsRate: { toString(): string } | null;
-    netPayable: { toString(): string };
-    gstApplicable: boolean;
-    cgst: { toString(): string };
-    sgst: { toString(): string };
-    igst: { toString(): string };
-    isItcEligible: boolean;
-    mode: string;
-    paymentRef: string | null;
-    paidAt: Date | null;
-    description: string | null;
-    status: string;
-    cashPayeeName: string | null;
-    organisation: {
-      legalName: string | null;
-      name: string;
-      pan: string | null;
-      addressLine1: string | null;
-      addressLine2: string | null;
-      city: string | null;
-      district: string | null;
-      state: string | null;
-      pincode: string | null;
-      phone: string | null;
-      email: string | null;
-      website: string | null;
-      authorisedSignatoryName: string | null;
-      authorisedSignatoryDesignation: string | null;
-      signatureImageUrl: string | null;
-      logoUrl: string | null;
-      receiptFooterText: string | null;
-    };
-    vendor: {
-      name: string;
-      pan: string | null;
-      gstin: string | null;
-      addressLine1: string | null;
-      city: string | null;
-      state: string | null;
-    } | null;
-    category: { name: string } | null;
-    project: { name: string; code: string } | null;
-    bankAccount: { bankName: string; accountNumber: string } | null;
-    pettyCashFloat: { name: string } | null;
-    approvals: Array<{
-      level: number;
-      decision: string;
-      notes: string | null;
-      decidedAt: Date;
-      approver: { name: string };
-    }>;
-  };
-
+function buildVoucher(doc: PDFKit.PDFDocument, exp: LoadedExpense) {
   const org = exp.organisation;
 
   // ----- HEADER BAND -----
@@ -344,6 +276,30 @@ function buildVoucher(doc: PDFKit.PDFDocument, e: LoadedExpense) {
     });
   }
 
+  // ----- SUPPORTING BILLS -----
+  // Listed, never embedded: the auditor uses this to check the paper folder
+  // holds what the voucher claims, and embedding scans would bloat the PDF.
+  const bills = supportingBills(exp);
+  if (bills.length > 0) {
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.inkSubtle).text(
+      "SUPPORTING BILLS",
+      MARGIN,
+      doc.y + 14,
+    );
+    doc.font("Helvetica").fontSize(10).fillColor(COLORS.ink).text(
+      `${bills.length} supporting bill${bills.length === 1 ? "" : "s"} attached`,
+      MARGIN,
+      doc.y + 2,
+      { width: CONTENT_WIDTH },
+    );
+    doc.font("Helvetica").fontSize(9).fillColor(COLORS.inkMuted).text(
+      bills.map((b, i) => `${i + 1}. ${b}`).join("\n"),
+      MARGIN,
+      doc.y + 2,
+      { width: CONTENT_WIDTH },
+    );
+  }
+
   // ----- APPROVAL TIMELINE -----
   if (exp.approvals.length > 0) {
     doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.inkSubtle).text(
@@ -437,6 +393,27 @@ function buildVoucher(doc: PDFKit.PDFDocument, e: LoadedExpense) {
     doc.opacity(1);
     doc.restore();
   }
+}
+
+/**
+ * One display line per bill. Pre-ExpenseAttachment vouchers carry a single
+ * `billUrl`; those rows still have to print a bill line or the voucher would
+ * claim the folder is empty.
+ */
+function supportingBills(exp: LoadedExpense): string[] {
+  if (exp.attachments.length > 0) {
+    return exp.attachments.map((a) =>
+      [a.originalName, a.pageLabel, humanSize(a.sizeBytes)].filter(Boolean).join("  ·  "),
+    );
+  }
+  if (exp.billUrl) return [`${exp.billUrl.split("/").pop() || exp.billUrl}  ·  legacy single bill`];
+  return [];
+}
+
+function humanSize(bytes: number): string {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function humaniseMode(mode: string): string {

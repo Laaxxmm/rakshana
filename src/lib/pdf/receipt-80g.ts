@@ -1,8 +1,9 @@
 import "server-only";
 import PDFDocument from "pdfkit";
+import type { Prisma } from "@prisma/client";
 import { prismaUnsafe } from "@/lib/db/prisma";
 import { storage, storageKey } from "@/lib/storage";
-import { formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
+import { formatINR, formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
 
 /**
@@ -39,21 +40,22 @@ const COLORS = {
   danger: "#B5443A",
 } as const;
 
+const RECEIPT_INCLUDE = {
+  donor: true,
+  organisation: {
+    include: { twelveA: true, eightyG: true, gstRegistration: true },
+  },
+  bankAccount: true,
+  project: true,
+  lineItems: { orderBy: { createdAt: "asc" } },
+} as const satisfies Prisma.DonationInclude;
+
+type DonationWithRefs = Prisma.DonationGetPayload<{ include: typeof RECEIPT_INCLUDE }>;
+
 export async function generate80GReceipt(donationId: string): Promise<GenerateResult> {
   const donation = await prismaUnsafe.donation.findUnique({
     where: { id: donationId },
-    include: {
-      donor: true,
-      organisation: {
-        include: {
-          twelveA: true,
-          eightyG: true,
-          gstRegistration: true,
-        },
-      },
-      bankAccount: true,
-      project: true,
-    },
+    include: RECEIPT_INCLUDE,
   });
   if (!donation) throw new Error(`Donation ${donationId} not found`);
 
@@ -75,21 +77,6 @@ export async function generate80GReceipt(donationId: string): Promise<GenerateRe
   });
 
   return { buffer, storageKey: key, url: stored.url };
-}
-
-type DonationWithRefs = Awaited<ReturnType<typeof loadDonation>>;
-async function loadDonation(donationId: string) {
-  return prismaUnsafe.donation.findUniqueOrThrow({
-    where: { id: donationId },
-    include: {
-      donor: true,
-      organisation: {
-        include: { twelveA: true, eightyG: true, gstRegistration: true },
-      },
-      bankAccount: true,
-      project: true,
-    },
-  });
 }
 
 async function renderPdf(donation: DonationWithRefs): Promise<Buffer> {
@@ -321,6 +308,10 @@ function buildReceipt(doc: PDFKit.PDFDocument, d: DonationWithRefs) {
       .text("Anonymous donation · no PAN on file", MARGIN, doc.y + 3);
   }
 
+  // Itemised sponsorships, when the donation was picked off the menu. Sits
+  // between the donor and the amount so the total below is read as its sum.
+  drawLineItems(doc, d.lineItems);
+
   // "the sum of"
   doc
     .font("Helvetica")
@@ -541,6 +532,82 @@ function buildReceipt(doc: PDFKit.PDFDocument, d: DonationWithRefs) {
       });
     doc.opacity(1);
     doc.restore();
+  }
+}
+
+// Column geometry for the itemised table, as offsets from the left margin.
+const ITEM_COLS = {
+  label: { x: 0, width: 250 },
+  quantity: { x: 258, width: 40 },
+  unit: { x: 304, width: 90 },
+  total: { x: 398, width: CONTENT_WIDTH - 398 },
+} as const;
+const ITEM_ROW_HEIGHT = 15;
+
+/**
+ * Itemised sponsorship table. No-op when the donation has no line items, so
+ * a plain donation's receipt keeps exactly the layout it always had.
+ */
+function drawLineItems(doc: PDFKit.PDFDocument, items: DonationWithRefs["lineItems"]) {
+  if (items.length === 0) return;
+
+  const top = doc.y + 18;
+  // No characterSpacing on the header: it makes pdf-parse extract each letter
+  // as its own word, which breaks text search over issued receipts.
+  doc.font("Helvetica").fontSize(8).fillColor(COLORS.inkSubtle);
+  drawItemRow(doc, top, ["SPONSORSHIP", "QTY", "UNIT", "AMOUNT"]);
+
+  const rulesX = [MARGIN, MARGIN + CONTENT_WIDTH] as const;
+  doc
+    .moveTo(rulesX[0], top + 12)
+    .lineTo(rulesX[1], top + 12)
+    .lineWidth(0.4)
+    .strokeColor(COLORS.border)
+    .stroke();
+
+  items.forEach((item, i) => {
+    const y = top + 18 + i * ITEM_ROW_HEIGHT;
+    doc.font("Helvetica").fontSize(9.5).fillColor(COLORS.ink);
+    drawItemRow(doc, y, [
+      item.label,
+      String(item.quantity),
+      formatINR(item.unitAmount.toString(), { paise: true }),
+      formatINR(item.lineTotal.toString(), { paise: true }),
+    ]);
+  });
+
+  const bottom = top + 18 + items.length * ITEM_ROW_HEIGHT - 2;
+  doc
+    .moveTo(rulesX[0], bottom)
+    .lineTo(rulesX[1], bottom)
+    .lineWidth(0.4)
+    .strokeColor(COLORS.border)
+    .stroke();
+  // Park the cursor below the table — the callers all flow from doc.y.
+  doc.text("", MARGIN, bottom);
+}
+
+/** One row of the itemised table: label left, the three numbers right-aligned. */
+function drawItemRow(
+  doc: PDFKit.PDFDocument,
+  y: number,
+  [label, quantity, unit, total]: readonly [string, string, string, string],
+) {
+  doc.text(label, MARGIN + ITEM_COLS.label.x, y, {
+    width: ITEM_COLS.label.width,
+    lineBreak: false,
+    ellipsis: true,
+  });
+  for (const [value, col] of [
+    [quantity, ITEM_COLS.quantity],
+    [unit, ITEM_COLS.unit],
+    [total, ITEM_COLS.total],
+  ] as const) {
+    doc.text(value, MARGIN + col.x, y, {
+      width: col.width,
+      align: "right",
+      lineBreak: false,
+    });
   }
 }
 

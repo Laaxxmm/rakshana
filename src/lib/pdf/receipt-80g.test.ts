@@ -159,6 +159,43 @@ describe("generate80GReceipt", () => {
     expect(text).toContain("CANCELLED");
   });
 
+  it("renders the itemised sponsorship table with per-line quantity and totals", async () => {
+    const donation = await makeDonation({
+      receiptNumber: "TST/2025-26/0004",
+      amount: "62500",
+    });
+    // sponsorshipItemId stays null on purpose: the receipt reads the snapshot
+    // columns, never the live catalogue, so a retired row cannot rewrite it.
+    await prismaUnsafe.donationLineItem.createMany({
+      data: [
+        {
+          donationId: donation.id,
+          label: "Child education sponsorship",
+          unitAmount: "25000",
+          quantity: 2,
+          lineTotal: "50000",
+        },
+        {
+          donationId: donation.id,
+          label: "Teacher training",
+          unitAmount: "12500",
+          quantity: 1,
+          lineTotal: "12500",
+        },
+      ],
+    });
+
+    const text = await pdfText((await generate80GReceipt(donation.id)).buffer);
+    expect(text).toContain("SPONSORSHIP");
+    expect(text).toContain("Child education sponsorship");
+    expect(text).toContain("Teacher training");
+    // Unit and line total are distinct columns — 2 x 25,000 must show as
+    // 50,000, not repeat the unit price.
+    expect(text).toContain("25,000.00");
+    expect(text).toContain("50,000.00");
+    expect(text).toContain("62,500.00");
+  });
+
   it("uses Indian grouping for small (4-digit) amounts too", async () => {
     const donation = await makeDonation({
       receiptNumber: "TST/2025-26/0003",

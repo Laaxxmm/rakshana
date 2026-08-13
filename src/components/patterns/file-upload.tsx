@@ -20,6 +20,12 @@ const DEFAULT_MAX = 10 * 1024 * 1024;
 
 export type FileUploadProps = {
   onSelect: (file: File) => Promise<void> | void;
+  /**
+   * Accept several files per pick/drop. `onSelect` is still called once per
+   * file; the caller owns the resulting list (see the expense form, where the
+   * bills stay client-side until the voucher is submitted).
+   */
+  multiple?: boolean;
   /** Existing file metadata to show in the "currently attached" state. */
   current?: { name: string; url?: string; size?: number; mime?: string } | null;
   accept?: readonly string[];
@@ -33,7 +39,7 @@ export type FileUploadProps = {
   onRemove?: () => void | Promise<void>;
 };
 
-function useDropzone(onFile: (file: File) => void) {
+function useDropzone(onFiles: (files: FileList) => void) {
   const [dragging, setDragging] = React.useState(false);
   const handlers = React.useMemo(
     () => ({
@@ -48,16 +54,16 @@ function useDropzone(onFile: (file: File) => void) {
       onDrop: (e: React.DragEvent) => {
         e.preventDefault();
         setDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) onFile(file);
+        if (e.dataTransfer.files?.length) onFiles(e.dataTransfer.files);
       },
     }),
-    [onFile],
+    [onFiles],
   );
   return { dragging, handlers };
 }
 
-function humanSize(bytes: number): string {
+/** Shared by every screen that lists attached files. */
+export function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -65,6 +71,7 @@ function humanSize(bytes: number): string {
 
 export function FileUpload({
   onSelect,
+  multiple = false,
   current,
   accept = DEFAULT_ALLOWED,
   maxBytes = DEFAULT_MAX,
@@ -78,25 +85,27 @@ export function FileUpload({
   const [clientError, setClientError] = React.useState<string | null>(null);
   const [pdfThumb, setPdfThumb] = React.useState<string | null>(null);
 
-  const handleFile = React.useCallback(
-    async (file: File) => {
+  const handleFiles = React.useCallback(
+    async (files: FileList) => {
       setClientError(null);
-      if (!accept.includes(file.type as (typeof accept)[number])) {
-        setClientError(`File type ${file.type || "unknown"} is not allowed. Use ${accept.join(", ")}.`);
-        return;
+      for (const file of multiple ? Array.from(files) : files[0] ? [files[0]] : []) {
+        if (!accept.includes(file.type as (typeof accept)[number])) {
+          setClientError(`File type ${file.type || "unknown"} is not allowed. Use ${accept.join(", ")}.`);
+          continue;
+        }
+        if (file.size > maxBytes) {
+          setClientError(
+            `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — maximum is ${(maxBytes / 1024 / 1024).toFixed(0)} MB.`,
+          );
+          continue;
+        }
+        await onSelect(file);
       }
-      if (file.size > maxBytes) {
-        setClientError(
-          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — maximum is ${(maxBytes / 1024 / 1024).toFixed(0)} MB.`,
-        );
-        return;
-      }
-      await onSelect(file);
     },
-    [accept, maxBytes, onSelect],
+    [accept, maxBytes, multiple, onSelect],
   );
 
-  const { dragging, handlers } = useDropzone(handleFile);
+  const { dragging, handlers } = useDropzone(handleFiles);
 
   // Lazy PDF thumbnail
   React.useEffect(() => {
@@ -211,7 +220,9 @@ export function FileUpload({
               <IconUpload size={20} />
             )}
             <span>
-              {pending ? "Uploading…" : "Drag a file here, or click to choose"}
+              {pending
+                ? "Uploading…"
+                : `Drag ${multiple ? "files" : "a file"} here, or click to choose`}
             </span>
             <span className="text-xs text-ink-subtle">
               {accept.map((m) => m.replace("application/", "").replace("image/", "")).join(" · ")}
@@ -226,10 +237,10 @@ export function FileUpload({
         type="file"
         className="hidden"
         accept={acceptAttr}
+        multiple={multiple}
         disabled={pending}
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFile(file);
+          if (e.target.files?.length) handleFiles(e.target.files);
           // Allow re-uploading the same file
           e.target.value = "";
         }}

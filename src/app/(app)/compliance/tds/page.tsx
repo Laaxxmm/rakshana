@@ -15,6 +15,7 @@ import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST, getCurrentFY } from "@/lib/format/date";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "TDS — Rakshana" };
 
@@ -90,6 +91,7 @@ export default async function TdsIndex() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
+      <HubNav hub="compliance" />
       <header>
         <Link href="/compliance" className="text-sm text-ink-muted hover:text-ink">
           ← Compliance

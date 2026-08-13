@@ -10,15 +10,17 @@ export default function CollectPage() {
   return (
     <div className="mx-auto max-w-md space-y-5">
       <header>
-        <h1 className="text-xl font-semibold">Collect a donation</h1>
-        <p className="text-sm text-muted-foreground">
-          Enter the amount, share the link or hold up the QR. The 80G receipt goes
-          out on its own once the payment clears.
+        <h1 className="font-display text-xl font-semibold tracking-tight text-ink">
+          Collect a donation
+        </h1>
+        <p className="text-sm text-ink-muted">
+          Enter the amount, share the link or hold up the QR. This screen watches for
+          the payment and hands you the 80G receipt as soon as it clears.
         </p>
       </header>
 
       {!configured && (
-        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+        <p className="rounded-[14px] bg-surface-sunken p-3 text-sm text-ink-muted">
           Razorpay isn&apos;t configured yet. Set RAZORPAY_KEY_ID and
           RAZORPAY_KEY_SECRET to start collecting online.
         </p>

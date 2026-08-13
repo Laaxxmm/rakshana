@@ -10,6 +10,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Compliance — Rakshana" };
 
@@ -74,6 +75,7 @@ export default async function ComplianceIndex() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
+      <HubNav hub="compliance" />
       <header>
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">
           Statutory compliance

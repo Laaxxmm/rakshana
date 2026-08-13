@@ -11,6 +11,7 @@ import {
   IconBan,
   IconReceipt,
   IconCircleCheck,
+  IconPaperclip,
 } from "@tabler/icons-react";
 import {
   Sheet,
@@ -22,9 +23,24 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { humanSize } from "@/components/patterns/file-upload";
 import { formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
-import { approveExpense, rejectExpense, markExpensePaid, cancelExpense } from "./actions";
+import {
+  approveExpense,
+  rejectExpense,
+  markExpensePaid,
+  cancelExpense,
+  listExpenseAttachments,
+} from "./actions";
+
+type Attachment = {
+  id: string;
+  fileUrl: string;
+  originalName: string;
+  sizeBytes: number;
+  pageLabel: string | null;
+};
 
 export type ExpenseDrawerData = {
   id: string;
@@ -63,6 +79,26 @@ export function ExpenseDrawer({
   const [reason, setReason] = React.useState("");
   const [showReject, setShowReject] = React.useState(false);
   const [showCancel, setShowCancel] = React.useState(false);
+
+  // Bills are fetched on open rather than shipped with every row on the list
+  // page — most vouchers are never opened.
+  const [bills, setBills] = React.useState<{
+    attachments: Attachment[];
+    legacyBillUrl: string | null;
+  }>({ attachments: [], legacyBillUrl: null });
+  React.useEffect(() => {
+    let cancelled = false;
+    listExpenseAttachments({ expenseId: expense.id }).then((res) => {
+      if (cancelled || !res?.data?.ok) return;
+      setBills({
+        attachments: res.data.attachments,
+        legacyBillUrl: res.data.legacyBillUrl,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [expense.id]);
 
   const approve = useAction(approveExpense, {
     onSuccess: () => {
@@ -205,6 +241,51 @@ export function ExpenseDrawer({
               </dd>
             </dl>
           </div>
+
+          {bills.attachments.length > 0 || bills.legacyBillUrl ? (
+            <div className="rounded-md border border-border bg-surface p-4">
+              <h3 className="text-xs uppercase tracking-[0.18em] text-ink-subtle">
+                Supporting bills ·{" "}
+                {bills.attachments.length || 1}
+              </h3>
+              <ul className="mt-2 space-y-1.5">
+                {bills.attachments.map((a) => (
+                  <li key={a.id} className="flex items-center gap-3">
+                    <IconPaperclip size={14} className="shrink-0 text-ink-subtle" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm">{a.originalName}</p>
+                      <p className="text-[11px] text-ink-subtle">
+                        {a.pageLabel ? `${a.pageLabel} · ` : ""}
+                        {humanSize(a.sizeBytes)}
+                      </p>
+                    </div>
+                    <a
+                      href={a.fileUrl}
+                      download={a.originalName}
+                      className="text-xs text-primary underline-offset-4 hover:underline"
+                    >
+                      Download
+                    </a>
+                  </li>
+                ))}
+                {bills.legacyBillUrl ? (
+                  <li className="flex items-center gap-3">
+                    <IconPaperclip size={14} className="shrink-0 text-ink-subtle" />
+                    <p className="min-w-0 flex-1 truncate text-sm">
+                      {bills.legacyBillUrl.split("/").pop()}
+                    </p>
+                    <a
+                      href={bills.legacyBillUrl}
+                      download
+                      className="text-xs text-primary underline-offset-4 hover:underline"
+                    >
+                      Download
+                    </a>
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
 
           {expense.description ? (
             <div className="rounded-md border border-border bg-surface p-4">

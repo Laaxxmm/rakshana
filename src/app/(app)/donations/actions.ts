@@ -3,16 +3,53 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { Decimal } from "decimal.js";
 import { safeAction } from "@/lib/actions/safe-action";
 import { prisma, prismaUnsafe } from "@/lib/db/prisma";
-import { recordDonationSchema, cancelDonationSchema } from "@/lib/schemas/donation";
+import {
+  recordDonationSchema,
+  cancelDonationSchema,
+  type DonationLineItemInput,
+} from "@/lib/schemas/donation";
+import { formatINRWithSymbol } from "@/lib/format/inr";
 import { allocateReceiptNumber } from "@/lib/services/receipt-number";
 import { getFinancialYear } from "@/lib/format/date";
 import { generate80GReceipt } from "@/lib/pdf/receipt-80g";
 import { dispatchDonationReceipt } from "@/lib/notify";
 import { storage, storageKey } from "@/lib/storage";
 
-const ANONYMOUS_PAN = "__ANONYMOUS__";
+/**
+ * Re-price the picked catalogue rows against the database. The browser posts
+ * a label and a unit price, but neither is trusted: a stale tab or a tampered
+ * payload must never decide what a donor is receipted for. The values written
+ * are snapshots, so revising the catalogue later can't rewrite this receipt.
+ */
+async function priceLineItems(picked: DonationLineItemInput[]) {
+  const items = await prisma.sponsorshipItem.findMany({
+    where: { id: { in: picked.map((p) => p.sponsorshipItemId) }, isActive: true },
+  });
+  const byId = new Map(items.map((i) => [i.id, i]));
+
+  const lines = picked.map((p) => {
+    const item = byId.get(p.sponsorshipItemId);
+    if (!item) {
+      throw new Error(
+        `"${p.label}" is no longer on the sponsorship menu. Remove it and try again.`,
+      );
+    }
+    const unitAmount = new Decimal(item.amount.toString());
+    return {
+      sponsorshipItemId: item.id,
+      label: item.label,
+      unitAmount: unitAmount.toFixed(2),
+      quantity: p.quantity,
+      lineTotal: unitAmount.times(p.quantity).toFixed(2),
+    };
+  });
+
+  const total = lines.reduce((sum, l) => sum.plus(l.lineTotal), new Decimal(0));
+  return { lines, total };
+}
 
 export const recordDonation = safeAction
   .metadata({ requires: "donation.create" })
@@ -20,10 +57,15 @@ export const recordDonation = safeAction
   .action(async ({ parsedInput, ctx }) => {
     const fy = getFinancialYear(parsedInput.donationDate);
 
-    // Look up the donor's anonymity + 80G rules BEFORE entering the tx.
-    const donor = await prisma.donor.findUniqueOrThrow({
-      where: { id: parsedInput.donorId },
-    });
+    // A brand-new donor is not written until the donation itself commits.
+    // Persisting on "Save donor" left a zero-lifetime orphan behind every
+    // time somebody closed the form without finishing, so the donor list
+    // filled up with people who never gave anything.
+    const donor = parsedInput.newDonor
+      ? { ...parsedInput.newDonor, isFcraEligible: false, isAnonymousBucket: false }
+      : await prisma.donor.findUniqueOrThrow({
+          where: { id: parsedInput.donorId },
+        });
     if (parsedInput.is80GEligible && donor.donorType === "ANONYMOUS") {
       throw new Error("Anonymous donations are never 80G-eligible.");
     }
@@ -35,8 +77,34 @@ export const recordDonation = safeAction
       donor.donorType === "FOREIGN_SOURCE" ||
       donor.donorType === "NRI";
 
+    const priced = parsedInput.lineItems.length
+      ? await priceLineItems(parsedInput.lineItems)
+      : null;
+    if (priced && !priced.total.eq(parsedInput.amount)) {
+      throw new Error(
+        `The sponsorship items add up to ${formatINRWithSymbol(priced.total, { paise: true })}, ` +
+          `but the amount submitted was ${formatINRWithSymbol(parsedInput.amount, { paise: true })}. ` +
+          `Reload the page — a catalogue price may have changed.`,
+      );
+    }
+    const amount = priced ? priced.total : parsedInput.amount;
+
     // Atomic counter + create.
     const created = await prismaUnsafe.$transaction(async (tx) => {
+      // Donor first, same transaction: if anything below fails, the donor
+      // is rolled back with it rather than being left stranded.
+      const donorId = parsedInput.newDonor
+        ? (
+            await tx.donor.create({
+              data: {
+                ...parsedInput.newDonor,
+                organisationId: ctx.scope.organisationId,
+                createdById: ctx.scope.userId,
+              } as never,
+            })
+          ).id
+        : parsedInput.donorId!;
+
       const allocated = await allocateReceiptNumber(tx, {
         organisationId: ctx.scope.organisationId,
         isFcra,
@@ -46,11 +114,12 @@ export const recordDonation = safeAction
       const donation = await tx.donation.create({
         data: {
           organisationId: ctx.scope.organisationId,
-          donorId: parsedInput.donorId,
+          donorId,
           receiptNumber: allocated.receiptNumber,
           receiptSeriesId: allocated.seriesId,
           donationDate: parsedInput.donationDate,
-          amount: parsedInput.amount.toString(),
+          amount: amount.toString(),
+          ...(priced ? { lineItems: { create: priced.lines } } : {}),
           mode: parsedInput.mode,
           bankAccountId: parsedInput.bankAccountId,
           paymentRef: parsedInput.paymentRef,
@@ -71,16 +140,22 @@ export const recordDonation = safeAction
       });
 
       // Bump denormalised donor stats in the same tx so the list/profile are always consistent.
+      // A donor created moments ago has no prior donation, so its
+      // lastDonationDate is simply this one.
+      const priorLast =
+        parsedInput.newDonor || !("lastDonationDate" in donor)
+          ? null
+          : donor.lastDonationDate;
       await tx.donor.update({
-        where: { id: donor.id },
+        where: { id: donorId },
         data: {
           totalDonatedLifetime: {
-            increment: new Prisma.Decimal(parsedInput.amount.toString()),
+            increment: new Prisma.Decimal(amount.toString()),
           },
           lastDonationDate:
-            !donor.lastDonationDate || donor.lastDonationDate < parsedInput.donationDate
+            !priorLast || priorLast < parsedInput.donationDate
               ? parsedInput.donationDate
-              : donor.lastDonationDate,
+              : priorLast,
         },
       });
 
@@ -271,5 +346,3 @@ export const markWhatsAppSent = safeAction
     revalidatePath("/donations");
     return { ok: true };
   });
-
-void ANONYMOUS_PAN; // kept for future use when the inline anonymous-bucket lookup needs it

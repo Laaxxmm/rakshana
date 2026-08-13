@@ -15,30 +15,42 @@ const OWNER_USER_ID = "owner-lakshmanan";
 const OWNER_EMAIL = "lakshmanan@indefine.in";
 const OWNER_PASSWORD = "Welcome@2026";
 
+/**
+ * Identity and address as printed on the trust's brochure. Applied on both
+ * create and update so a database seeded before the brochure landed
+ * converges instead of keeping the old placeholder address.
+ */
+const ORG_BROCHURE_DETAILS = {
+  legalName: "Rakshana Charitable Trust",
+  phone: "+91 96867 60263",
+  website: "https://www.rakshana.org",
+  addressLine1: "#06, Muneshwara Layout, 3rd Cross",
+  addressLine2: "Kogilu Agrahara, Sampigehalli Main Road",
+  city: "Bengaluru",
+  district: "Bengaluru Urban",
+  state: "Karnataka",
+  stateCode: "29",
+  pincode: "560064",
+};
+
 async function main() {
   console.log("→ Seeding Rakshana Trust …");
 
   // -------------------------------------------------------------------
   // 1. Organisation
   // -------------------------------------------------------------------
+  // PAN / TAN / registration numbers stay as seeded placeholders — they were
+  // not on the brochure, and an invented number is worse than an obvious one.
   const org = await prisma.organisation.upsert({
     where: { id: ORG_ID },
-    update: {},
+    update: ORG_BROCHURE_DETAILS,
     create: {
       id: ORG_ID,
       name: "Rakshana Trust",
-      legalName: "Rakshana Charitable Trust",
       charitablePurpose: "Education, health, and rural development",
       subCategory: "Education",
-      phone: "+91 80 4567 8900",
       email: "trust@rakshana.org",
-      website: "https://rakshana.org",
-      addressLine1: "12 Lavelle Road",
-      city: "Bengaluru",
-      district: "Bengaluru Urban",
-      state: "Karnataka",
-      stateCode: "29",
-      pincode: "560001",
+      ...ORG_BROCHURE_DETAILS,
       registrationType: "TRUST",
       registrationNumber: "TR/BLR/2024/0001",
       registrationDate: new Date("2024-04-15T00:00:00+05:30"),
@@ -80,24 +92,9 @@ async function main() {
   });
 
   // -------------------------------------------------------------------
-  // 2. Bank account (primary, GENERAL purpose)
+  // 2. Bank accounts
   // -------------------------------------------------------------------
-  await prisma.bankAccount.upsert({
-    where: { organisationId_accountNumber: { organisationId: org.id, accountNumber: "00301234567890" } },
-    update: {},
-    create: {
-      organisationId: org.id,
-      bankName: "HDFC Bank",
-      branch: "Lavelle Road, Bengaluru",
-      accountNumber: "00301234567890",
-      accountHolder: "Rakshana Trust",
-      ifsc: "HDFC0000301",
-      accountType: "CURRENT",
-      purpose: "GENERAL",
-      isPrimary: true,
-      isActive: true,
-    },
-  });
+  await seedBankAccounts(org.id);
 
   // -------------------------------------------------------------------
   // 3. Owner user + membership
@@ -254,6 +251,11 @@ async function main() {
     });
   }
 
+  // -------------------------------------------------------------------
+  // 11. Sponsorship catalogue (the brochure's donation menu)
+  // -------------------------------------------------------------------
+  await seedSponsorshipItems(org.id);
+
   console.log("✓ Seed complete.");
   console.log(`  Org:    ${org.name} (${org.id})`);
   console.log(`  Owner:  ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
@@ -272,6 +274,104 @@ function currentFinancialYear(): string {
   const month = ist.getUTCMonth(); // 0 = Jan
   const fyStart = month >= 3 ? year : year - 1;
   return `${fyStart}-${(fyStart + 1).toString().slice(-2)}`;
+}
+
+async function seedBankAccounts(organisationId: string) {
+  const accounts = [
+    {
+      bankName: "ICICI Bank",
+      branch: "Marathahalli",
+      accountNumber: "141705000636",
+      ifsc: "ICIC0001417",
+      isPrimary: true,
+    },
+    {
+      bankName: "Canara Bank",
+      branch: "Nandidurga Road, Bangalore",
+      accountNumber: "0793101030527",
+      ifsc: "CNRB0000793",
+      isPrimary: false,
+    },
+  ];
+  for (const a of accounts) {
+    await prisma.bankAccount.upsert({
+      where: { organisationId_accountNumber: { organisationId, accountNumber: a.accountNumber } },
+      update: { bankName: a.bankName, branch: a.branch, ifsc: a.ifsc, isPrimary: a.isPrimary },
+      create: {
+        organisationId,
+        ...a,
+        accountHolder: "Rakshana Charitable Trust",
+        accountType: "CURRENT",
+        purpose: "GENERAL",
+        isActive: true,
+      },
+    });
+  }
+
+  // Retire the HDFC placeholder this seed used to create. It is deleted only
+  // when nothing points at it; where demo donations or expenses were already
+  // booked against it, deactivating keeps that history readable and stops it
+  // competing with ICICI for primary.
+  const placeholder = { organisationId, accountNumber: "00301234567890" };
+  await prisma.bankAccount.updateMany({
+    where: placeholder,
+    data: { isPrimary: false, isActive: false },
+  });
+  await prisma.bankAccount.deleteMany({
+    where: { ...placeholder, donations: { none: {} }, expenses: { none: {} } },
+  });
+}
+
+async function seedSponsorshipItems(organisationId: string) {
+  type Item = { label: string; amount: number; unitNoun: string };
+
+  // Order within each list is the order the brochure prints them, and becomes
+  // sortOrder. The monthly entry leads the page, so it sorts first.
+  const children: Item[] = [
+    { label: "Monthly sponsorship", amount: 800, unitNoun: "month" },
+    { label: "School bag & shoes per child", amount: 1500, unitNoun: "child" },
+    { label: "Pair of uniform set per child", amount: 3250, unitNoun: "child" },
+    { label: "Stationery for a year per child", amount: 3450, unitNoun: "child" },
+    { label: "Weekly fruits & snacks", amount: 3600, unitNoun: "week" },
+    { label: "Basic needs for our children", amount: 6000, unitNoun: "child" },
+    { label: "One-time meal for 36 children", amount: 7000, unitNoun: "meal" },
+    { label: "Medical & health care for 36 children", amount: 8000, unitNoun: "month" },
+    { label: "School admission per child", amount: 30500, unitNoun: "child" },
+    { label: "One year education sponsorship for a child", amount: 46000, unitNoun: "child" },
+    {
+      label: "Yearly sponsorship for a child (education, medical, nutrition)",
+      amount: 95000,
+      unitNoun: "child",
+    },
+  ];
+  const community: Item[] = [
+    { label: "Wheelchair for a disabled child", amount: 7500, unitNoun: "wheelchair" },
+    { label: "One sewing machine per woman", amount: 8500, unitNoun: "woman" },
+    { label: "Tuition fees for 120 children per month", amount: 10000, unitNoun: "month" },
+    { label: "Computer training and English coaching", amount: 10000, unitNoun: "batch" },
+    { label: "Special training classes for women", amount: 15000, unitNoun: "batch" },
+    { label: "Mid-day meal groceries for 100 elderly people", amount: 15000, unitNoun: "month" },
+  ];
+
+  const catalogue = [
+    ...children.map((i, sortOrder) => ({ ...i, category: "CHILDREN_EDUCATION" as const, sortOrder })),
+    ...community.map((i, sortOrder) => ({ ...i, category: "COMMUNITY_TRAINING" as const, sortOrder })),
+  ];
+
+  for (const item of catalogue) {
+    // Prices are revised yearly — update on re-seed so the menu stays current.
+    await prisma.sponsorshipItem.upsert({
+      where: { organisationId_label: { organisationId, label: item.label } },
+      update: {
+        category: item.category,
+        amount: item.amount,
+        unitNoun: item.unitNoun,
+        sortOrder: item.sortOrder,
+        isActive: true,
+      },
+      create: { organisationId, ...item },
+    });
+  }
 }
 
 async function seedExpenseCategories(organisationId: string) {

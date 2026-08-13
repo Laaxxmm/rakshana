@@ -14,6 +14,7 @@ import { requireOrgScope } from "@/lib/auth/scope";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
 import { aggregateGstr } from "@/lib/compliance/gstr";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "GST — Rakshana" };
 
@@ -24,6 +25,7 @@ export default async function GstIndex() {
   if (!reg) {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
+        <HubNav hub="compliance" />
         <header>
           <Link href="/compliance" className="text-sm text-ink-muted hover:text-ink">
             ← Compliance

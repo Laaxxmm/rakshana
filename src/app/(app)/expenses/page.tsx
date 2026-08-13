@@ -17,6 +17,7 @@ import { formatIST, getCurrentFY, getFinancialYearRange } from "@/lib/format/dat
 import { requireOrgScope } from "@/lib/auth/scope";
 import { roleHasPermission } from "@/lib/auth/permissions";
 import { ExpenseDrawer, type ExpenseDrawerData } from "./ExpenseDrawer";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Expenses — Rakshana" };
 
@@ -86,6 +87,7 @@ export default async function ExpensesPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
+      <HubNav hub="moneyOut" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Accounting</p>

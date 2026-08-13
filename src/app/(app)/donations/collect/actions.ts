@@ -65,5 +65,73 @@ export const createCollectionLink = safeAction
       console.error("[collect] UPI QR unavailable", err);
     }
 
-    return { paymentUrl: link.shortUrl, orderId: link.id, qrImageUrl };
+    return {
+      paymentIntentId: intent.id,
+      amount: parsedInput.amount,
+      paymentUrl: link.shortUrl,
+      orderId: link.id,
+      qrImageUrl,
+    };
+  });
+
+export type CollectionStatus =
+  | { state: "AWAITING" }
+  | { state: "FAILED" }
+  | { state: "RECEIPT_PENDING"; donationId: string; receiptNumber: string }
+  | {
+      state: "RECEIPT_READY";
+      donationId: string;
+      receiptNumber: string;
+      receiptUrl: string;
+      donorName: string;
+      donorEmail: string | null;
+      donorWhatsApp: string | null;
+    };
+
+/**
+ * Polled by the collect screen while the volunteer waits at the stall. The
+ * webhook is what actually converts the intent, so this only ever reads.
+ *
+ * `RECEIPT_PENDING` covers both "the PDF is seconds away" and "generation
+ * failed" — indistinguishable from the row, and the volunteer's move is the
+ * same either way: wait a beat, then retry.
+ */
+export const getCollectionStatus = safeAction
+  .metadata({ requires: "payment.link.create" })
+  .inputSchema(z.object({ paymentIntentId: z.string().min(1) }))
+  .action(async ({ parsedInput }): Promise<CollectionStatus> => {
+    const intent = await prisma.paymentIntent.findUniqueOrThrow({
+      where: { id: parsedInput.paymentIntentId },
+      select: { status: true, donationId: true },
+    });
+    if (intent.status === "FAILED") return { state: "FAILED" };
+    if (!intent.donationId) return { state: "AWAITING" };
+
+    const donation = await prisma.donation.findUnique({
+      where: { id: intent.donationId },
+      select: {
+        id: true,
+        receiptNumber: true,
+        receiptUrl: true,
+        donor: { select: { name: true, email: true, whatsapp: true } },
+      },
+    });
+    if (!donation) return { state: "AWAITING" };
+
+    if (!donation.receiptUrl) {
+      return {
+        state: "RECEIPT_PENDING",
+        donationId: donation.id,
+        receiptNumber: donation.receiptNumber,
+      };
+    }
+    return {
+      state: "RECEIPT_READY",
+      donationId: donation.id,
+      receiptNumber: donation.receiptNumber,
+      receiptUrl: donation.receiptUrl,
+      donorName: donation.donor.name,
+      donorEmail: donation.donor.email,
+      donorWhatsApp: donation.donor.whatsapp,
+    };
   });

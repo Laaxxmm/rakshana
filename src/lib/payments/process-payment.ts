@@ -1,4 +1,5 @@
 import "server-only";
+import { Decimal } from "decimal.js";
 import { Prisma, type Prisma as P } from "@prisma/client";
 import { prismaUnsafe } from "@/lib/db/prisma";
 import { allocateReceiptNumber } from "@/lib/services/receipt-number";
@@ -19,7 +20,13 @@ import { dispatchDonationReceipt } from "@/lib/notify";
  * transaction (donation included) never runs.
  */
 
-type Entity = { id?: string; order_id?: string | null; notes?: Record<string, unknown> };
+type Entity = {
+  id?: string;
+  order_id?: string | null;
+  /** Captured amount in paise — Razorpay never sends rupees. */
+  amount?: number;
+  notes?: Record<string, unknown>;
+};
 
 export type RazorpayWebhookEvent = {
   event?: string;
@@ -48,6 +55,28 @@ export async function processRazorpayEvent(
   if (!intent) return { status: "ignored", reason: "no matching payment intent" };
   if (intent.donationId) return { status: "duplicate" };
 
+  // Book what the gateway says was actually captured, not what we asked for.
+  // Razorpay enforces the amount for fixed orders, but a variable-amount QR
+  // lets the donor choose, and receipting more than was paid would be a
+  // false 80G claim. Rejecting is worse than recording the true figure, so
+  // we take the captured amount and record the discrepancy for review.
+  const capturedPaise =
+    typeof payment.amount === "number" && Number.isFinite(payment.amount)
+      ? payment.amount
+      : null;
+  const expected = new Decimal(intent.amount.toString());
+  let bookedAmount = expected;
+  let amountNote: string | null = null;
+  if (capturedPaise !== null) {
+    const captured = new Decimal(capturedPaise).div(100);
+    if (!captured.eq(expected)) {
+      bookedAmount = captured;
+      amountNote =
+        `Gateway captured ${captured.toFixed(2)} against an intent of ${expected.toFixed(2)}.`;
+      console.warn(`[razorpay] amount mismatch on ${paymentId}: ${amountNote}`);
+    }
+  }
+
   const donationId = await prismaUnsafe.$transaction(async (tx) => {
     const claimed = await tx.paymentIntent.updateMany({
       where: { id: intent.id, razorpayPaymentId: null },
@@ -70,12 +99,15 @@ export async function processRazorpayEvent(
         receiptNumber: allocated.receiptNumber,
         receiptSeriesId: allocated.seriesId,
         donationDate: paidAt,
-        amount: intent.amount,
+        amount: bookedAmount.toFixed(2),
         mode: "ONLINE_GATEWAY",
         paymentRef: paymentId,
         paymentDate: paidAt,
         purpose: intent.purpose,
         is80GEligible: true,
+        // A log line is not an audit trail — if the captured amount differed
+        // from what was requested, that has to travel with the donation.
+        ...(amountNote ? { remarks: amountNote } : {}),
         status: "RECEIVED",
       },
     });
@@ -83,7 +115,7 @@ export async function processRazorpayEvent(
     await tx.donor.update({
       where: { id: donor.id },
       data: {
-        totalDonatedLifetime: { increment: new Prisma.Decimal(intent.amount) },
+        totalDonatedLifetime: { increment: new Prisma.Decimal(bookedAmount.toFixed(2)) },
         lastDonationDate: paidAt,
       },
     });

@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Approvals — Rakshana" };
 
@@ -33,6 +34,7 @@ export default async function ApprovalsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
+      <HubNav hub="moneyOut" />
       <header>
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Inbox</p>
         <h1

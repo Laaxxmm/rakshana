@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Decimal } from "decimal.js";
+import { miniDonorSchema } from "./donor";
 
 // ---------------------------------------------------------------------------
 // Enums (mirrors prisma)
@@ -97,13 +98,31 @@ export const moneySchema = z
 // recordDonation input — used by the 30-second form
 // ---------------------------------------------------------------------------
 
+/**
+ * One picked catalogue row. `label` / `unitAmount` are what the volunteer saw
+ * on screen; the server re-reads both from SponsorshipItem and only uses the
+ * posted numbers to detect a mismatch. Never to compute money.
+ */
+export const donationLineItemSchema = z.object({
+  sponsorshipItemId: z.string().min(1),
+  label: z.string().min(1),
+  unitAmount: moneySchema,
+  quantity: z.coerce.number().int().min(1, "Quantity must be at least 1").max(9999),
+});
+export type DonationLineItemInput = z.infer<typeof donationLineItemSchema>;
+
 export const recordDonationSchema = z
   .object({
-    donorId: z.string().min(1, "Pick a donor"),
+    // Either an existing donor, or a brand-new one created in the same
+    // transaction as the donation. Creating the donor up front left an
+    // orphan row behind every time somebody abandoned the form.
+    donorId: z.string().optional(),
+    newDonor: miniDonorSchema.optional(),
     donationDate: z.coerce.date().refine((d) => d.getTime() <= Date.now() + 24 * 3600 * 1000, {
       message: "Donation date can't be in the future",
     }),
     amount: moneySchema,
+    lineItems: z.array(donationLineItemSchema).max(50).optional().default([]),
     mode: z.enum(DONATION_MODES),
 
     bankAccountId: optionalText,
@@ -131,6 +150,20 @@ export const recordDonationSchema = z
   })
   // ---- Cross-field rules ----
   .superRefine((v, ctx) => {
+    if (!v.donorId && !v.newDonor) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["donorId"],
+        message: "Pick a donor, or add a new one",
+      });
+    }
+    if (v.donorId && v.newDonor) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["donorId"],
+        message: "Send either an existing donor or a new one, not both",
+      });
+    }
     if (MODES_NEED_REF.has(v.mode) && !v.paymentRef) {
       ctx.addIssue({
         code: "custom",

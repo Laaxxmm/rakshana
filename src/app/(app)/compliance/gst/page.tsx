@@ -30,7 +30,6 @@ export default async function GstIndex() {
           </Link>
           <h1
             className="mt-2 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             GST
           </h1>
@@ -73,7 +72,6 @@ export default async function GstIndex() {
         </Link>
         <h1
           className="mt-2 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           GST
         </h1>

@@ -19,7 +19,6 @@ export default async function LoginPage({
           </p>
           <h1
             className="mt-2 font-display text-4xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 36" }}
           >
             Welcome back
           </h1>

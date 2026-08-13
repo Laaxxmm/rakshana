@@ -359,7 +359,6 @@ function Stat({
       </p>
       <p
         className={`font-display text-3xl ${color} tabular-nums`}
-        style={{ fontVariationSettings: "'opsz' 28" }}
       >
         {value}
       </p>

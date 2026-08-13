@@ -116,7 +116,6 @@ export function ExpenseDrawer({
           <div className="space-y-1.5">
             <div
               className="font-display text-3xl leading-tight text-ink"
-              style={{ fontVariationSettings: "'opsz' 28" }}
             >
               {formatINRWithSymbol(expense.grossAmount, { paise: true })}
             </div>

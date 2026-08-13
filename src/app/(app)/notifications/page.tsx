@@ -38,7 +38,6 @@ export default async function NotificationsPage() {
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Inbox</p>
           <h1
             className="mt-1 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             Notifications
           </h1>

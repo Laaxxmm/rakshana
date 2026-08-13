@@ -46,7 +46,6 @@ export default async function ReportsPage() {
         </p>
         <h1
           className="mt-1 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           Reports
         </h1>

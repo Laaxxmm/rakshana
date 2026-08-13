@@ -80,7 +80,6 @@ export default async function ComplianceIndex() {
         </p>
         <h1
           className="mt-1 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           Compliance Suite
         </h1>

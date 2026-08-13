@@ -32,7 +32,6 @@ export default async function Itr7Page() {
         </Link>
         <h1
           className="mt-2 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           ITR-7 figures preparation
         </h1>

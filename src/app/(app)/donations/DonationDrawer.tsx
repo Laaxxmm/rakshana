@@ -109,7 +109,6 @@ export function DonationDrawer({
           <div className="space-y-1.5">
             <div
               className="font-display text-3xl leading-tight text-ink"
-              style={{ fontVariationSettings: "'opsz' 28" }}
             >
               {formatINRWithSymbol(donation.amount, { paise: true })}
             </div>

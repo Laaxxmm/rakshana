@@ -17,13 +17,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   if (!session?.user) redirect("/login");
 
   return (
-    <div className="flex min-h-dvh">
-      <Sidebar organisationName={session.user.organisationName} />
-      <div className="flex flex-1 flex-col">
-        <TopBar />
-        <main className="flex-1 overflow-y-auto bg-canvas px-8 py-8">
-          {children}
-        </main>
+    // The whole app sits inside one rounded surface floating on the canvas,
+    // so the page reads as a single object rather than stacked panels.
+    <div className="flex min-h-dvh gap-0 bg-canvas p-3 sm:p-4">
+      <div className="flex flex-1 overflow-hidden rounded-[22px] bg-surface shadow-[var(--shadow-md)]">
+        <Sidebar organisationName={session.user.organisationName} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar />
+          <main className="flex-1 overflow-y-auto px-8 pb-10 pt-2">
+            {children}
+          </main>
+        </div>
       </div>
     </div>
   );

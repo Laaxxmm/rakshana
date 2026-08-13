@@ -27,7 +27,6 @@ export default async function ReportWizardPage({
         </Link>
         <h1
           className="mt-2 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           {r.title}
         </h1>

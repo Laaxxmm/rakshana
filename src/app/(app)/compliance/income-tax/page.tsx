@@ -45,7 +45,6 @@ export default async function IncomeTaxIndex() {
         </Link>
         <h1
           className="mt-2 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           Income Tax
         </h1>
@@ -75,7 +74,6 @@ export default async function IncomeTaxIndex() {
               </p>
               <p
                 className="mt-1 font-display text-5xl text-ink tabular-nums"
-                style={{ fontVariationSettings: "'opsz' 32" }}
               >
                 {rule.applicationPercentage}%
               </p>

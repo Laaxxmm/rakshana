@@ -76,7 +76,6 @@ export default async function DonorProfilePage({
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Donor</p>
           <h1
             className="mt-1 font-display text-4xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 36" }}
           >
             {donor.name}
           </h1>

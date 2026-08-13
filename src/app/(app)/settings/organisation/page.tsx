@@ -76,7 +76,6 @@ export default async function OrganisationProfilePage() {
         </p>
         <h1
           className="mt-1 font-display text-4xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 32" }}
         >
           {organisation.name}
         </h1>

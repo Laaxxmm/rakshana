@@ -24,7 +24,6 @@ export default async function EditVendorPage({ params }: { params: Promise<{ id:
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Edit vendor</p>
         <h1
           className="mt-1 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           {vendor.name}
         </h1>

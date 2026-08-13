@@ -36,7 +36,11 @@ export default async function DashboardPage() {
   const today = todayInIST();
 
   return (
-    <div className="mx-auto max-w-4xl space-y-10">
+    <div className="mx-auto max-w-5xl space-y-10 pt-6">
+      <h1 className="font-display text-[26px] font-semibold tracking-tight text-ink">
+        Overview
+      </h1>
+
       {pendingApprovals > 0 ? (
         <Link
           href="/approvals"
@@ -118,7 +122,6 @@ function BigNumber({
       <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">{label}</p>
       <p
         className={`mt-2 font-display text-4xl tabular-nums ${tone === "warning" ? "text-[color:var(--warning)]" : "text-ink"}`}
-        style={{ fontVariationSettings: "'opsz' 32" }}
       >
         {value}
       </p>

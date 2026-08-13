@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
-import { Fraunces, Inter_Tight, JetBrains_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/shell/ThemeProvider";
 import "./globals.css";
 
-const fraunces = Fraunces({
+// Kept under the --font-display variable name so the ~100 existing
+// `font-display` class usages re-skin without touching a single page.
+const displaySans = Plus_Jakarta_Sans({
   variable: "--font-display",
   subsets: ["latin"],
-  axes: ["opsz", "SOFT", "WONK"],
+  weight: ["500", "600", "700", "800"],
   display: "swap",
 });
 
@@ -37,7 +39,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${fraunces.variable} ${interTight.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${displaySans.variable} ${interTight.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <ThemeProvider>

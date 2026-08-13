@@ -126,7 +126,6 @@ export default async function BankingPage() {
           </p>
           <h1
             className="mt-1 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             Banking
           </h1>
@@ -148,7 +147,6 @@ export default async function BankingPage() {
           </p>
           <p
             className="font-display text-3xl text-ink tabular-nums"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             {formatINRWithSymbol(totalBalance.toString())}
           </p>
@@ -252,7 +250,6 @@ export default async function BankingPage() {
                         </p>
                         <p
                           className="font-display text-base tabular-nums text-ink"
-                          style={{ fontVariationSettings: "'opsz' 18" }}
                         >
                           {formatINRWithSymbol(balance.toString())}
                         </p>

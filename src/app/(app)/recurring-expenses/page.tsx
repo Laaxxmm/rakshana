@@ -45,7 +45,6 @@ export default async function RecurringExpensesPage() {
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Accounting</p>
           <h1
             className="mt-1 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             Recurring expenses
           </h1>

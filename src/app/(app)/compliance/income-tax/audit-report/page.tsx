@@ -41,7 +41,6 @@ export default async function AuditReportPage() {
         </Link>
         <h1
           className="mt-2 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           Audit report tracker
         </h1>

@@ -55,7 +55,6 @@ export default async function Form10BDIndex() {
           </p>
           <h1
             className="mt-1 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             Form 10BD
           </h1>

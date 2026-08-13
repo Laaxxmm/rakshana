@@ -29,7 +29,6 @@ export default async function VolunteersPage() {
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Programmes</p>
           <h1
             className="mt-1 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             Volunteers
           </h1>

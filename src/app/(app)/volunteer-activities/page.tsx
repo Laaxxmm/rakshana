@@ -35,7 +35,6 @@ export default async function VolunteerActivitiesPage() {
           </p>
           <h1
             className="mt-1 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             Volunteer activities
           </h1>

@@ -41,7 +41,6 @@ export default async function Form10Page() {
           </Link>
           <h1
             className="mt-2 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             Form 10 · Accumulation under Sec 11(2)
           </h1>

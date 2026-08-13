@@ -50,7 +50,6 @@ export default async function CalendarPage() {
           </Link>
           <h1
             className="mt-2 font-display text-3xl text-ink"
-            style={{ fontVariationSettings: "'opsz' 28" }}
           >
             Calendar
           </h1>

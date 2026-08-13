@@ -72,45 +72,46 @@
 }
 
 :root {
-  /* Canvas — warm paper */
-  --canvas: #FAF8F3;
+  /* Canvas — cool neutral. The page sits a shade darker than the content
+     surface so cards read as floating rather than as boxed-off regions. */
+  --canvas: #EEF0F5;
   --surface: #FFFFFF;
-  --surface-sunken: #F4F1EA;
+  --surface-sunken: #F6F7FA;
 
-  /* Ink */
-  --ink: #1A1814;
-  --ink-muted: #5C5852;
-  --ink-subtle: #8A857E;
+  /* Ink — navy-tinted rather than pure black; softer at small sizes */
+  --ink: #16203A;
+  --ink-muted: #5A6480;
+  --ink-subtle: #9099AF;
 
   /* Brand */
-  --primary: #1A6E5A;
-  --primary-hover: #155A4A;
-  --primary-soft: #E8F0ED;
+  --primary: #4F46E5;
+  --primary-hover: #4338CA;
+  --primary-soft: #EEF0FE;
 
-  /* Accent — saffron, used sparingly */
-  --accent: #C26B2A;
-  --accent-soft: #FBF1E5;
+  /* Accent — teal, used sparingly */
+  --accent: #0E9F8B;
+  --accent-soft: #E6F7F4;
 
-  /* Semantic */
-  --success: #2F7D5E;
-  --warning: #B8761E;
-  --danger:  #B5443A;
-  --info:    #2F5D7D;
+  /* Semantic — money-in green, money-out amber, destructive red */
+  --success: #16A34A;
+  --warning: #D97706;
+  --danger:  #DC2626;
+  --info:    #2563EB;
 
-  /* Borders */
-  --border: #E8E3D9;
-  --border-strong: #D4CEC2;
+  /* Borders — barely-there; separation comes from shadow, not lines */
+  --border: #E5E8F0;
+  --border-strong: #CFD5E3;
 
   /* Radii */
-  --radius-sm: 4px;
-  --radius:    6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-sm: 8px;
+  --radius:    10px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(26, 24, 20, 0.04);
-  --shadow-md: 0 4px 12px rgba(26, 24, 20, 0.06);
-  --shadow-lg: 0 12px 32px rgba(26, 24, 20, 0.08);
+  /* Shadows — soft and wide, the lift that replaces borders */
+  --shadow-sm: 0 1px 2px rgba(22, 32, 58, 0.04);
+  --shadow-md: 0 6px 20px rgba(22, 32, 58, 0.07);
+  --shadow-lg: 0 16px 48px rgba(22, 32, 58, 0.10);
 
   /* ----- shadcn semantic slots mapped to Rakshana ----- */
   --background:           var(--canvas);
@@ -119,12 +120,12 @@
   --card-foreground:      var(--ink);
   --popover:              var(--surface);
   --popover-foreground:   var(--ink);
-  --primary-foreground:   #FAF8F3;
+  --primary-foreground:   #FFFFFF;
   --secondary:            var(--surface-sunken);
   --secondary-foreground: var(--ink);
   --muted:                var(--surface-sunken);
   --muted-foreground:     var(--ink-muted);
-  --accent-foreground:    #FAF8F3;
+  --accent-foreground:    #FFFFFF;
   --destructive:          var(--danger);
   --input:                var(--border);
   --ring:                 var(--primary);
@@ -133,10 +134,10 @@
   --chart-3:              var(--info);
   --chart-4:              var(--success);
   --chart-5:              var(--warning);
-  --sidebar:                  var(--surface-sunken);
+  --sidebar:                  var(--surface);
   --sidebar-foreground:       var(--ink);
   --sidebar-primary:          var(--primary);
-  --sidebar-primary-foreground: #FAF8F3;
+  --sidebar-primary-foreground: #FFFFFF;
   --sidebar-accent:           var(--primary-soft);
   --sidebar-accent-foreground: var(--primary);
   --sidebar-border:           var(--border);
@@ -144,23 +145,23 @@
 }
 
 .dark {
-  --canvas: #13110E;
-  --surface: #1B1814;
-  --surface-sunken: #14110D;
-  --ink: #F2EDE3;
-  --ink-muted: #A8A199;
-  --ink-subtle: #6B665E;
-  --primary: #2F9576;
-  --primary-hover: #38AB89;
-  --primary-soft: #1B2D27;
-  --accent: #D88547;
-  --accent-soft: #2A1F14;
-  --success: #4FB081;
-  --warning: #D49945;
-  --danger:  #D86A5E;
-  --info:    #5085AD;
-  --border: #2A2620;
-  --border-strong: #3A352C;
+  --canvas: #0B0F1A;
+  --surface: #141A2A;
+  --surface-sunken: #0F1421;
+  --ink: #E8ECF5;
+  --ink-muted: #9AA4BF;
+  --ink-subtle: #6B7590;
+  --primary: #818CF8;
+  --primary-hover: #A5B4FC;
+  --primary-soft: #1E2340;
+  --accent: #2DD4BF;
+  --accent-soft: #10302E;
+  --success: #4ADE80;
+  --warning: #FBBF24;
+  --danger:  #F87171;
+  --info:    #60A5FA;
+  --border: #232A3D;
+  --border-strong: #333C54;
 
   --background:           var(--canvas);
   --foreground:           var(--ink);
@@ -182,7 +183,7 @@
   --chart-3:              var(--info);
   --chart-4:              var(--success);
   --chart-5:              var(--warning);
-  --sidebar:                  var(--surface-sunken);
+  --sidebar:                  var(--surface);
   --sidebar-foreground:       var(--ink);
   --sidebar-primary:          var(--primary);
   --sidebar-primary-foreground: var(--ink);
@@ -209,16 +210,6 @@
     position: relative;
   }
 
-  /* Paper grain — fixed, behind everything, very subtle */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.03;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-    z-index: 0;
-  }
 
   body > * {
     position: relative;

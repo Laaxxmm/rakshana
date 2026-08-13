@@ -62,7 +62,6 @@ export default async function RecordDonationPage({
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">New donation</p>
         <h1
           className="mt-1 font-display text-3xl text-ink"
-          style={{ fontVariationSettings: "'opsz' 28" }}
         >
           Record a donation
         </h1>

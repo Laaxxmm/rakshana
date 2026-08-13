@@ -1,6 +1,12 @@
 import { defineConfig } from "vitest/config";
+import { loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+
+// Next.js loads `.env` on its own; vitest does not. Without this the
+// DB-backed tests fail with "Environment variable not found: DATABASE_URL"
+// unless the caller happened to export it in their shell.
+Object.assign(process.env, loadEnv("test", process.cwd(), ""));
 
 export default defineConfig({
   plugins: [react()],

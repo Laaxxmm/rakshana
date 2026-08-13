@@ -11,6 +11,8 @@ declare global {
 
 function buildAdapter(): StorageAdapter {
   const backend = (process.env["STORAGE_BACKEND"] ?? "local") as StorageBackend;
+  // R2Adapter builds its S3 client on first call, so this stays cheap and
+  // never touches R2_* env when the backend is local.
   if (backend === "r2") return new R2Adapter();
   // Local FS lives under <repo>/.uploads — gitignored, persistent across dev restarts.
   const root = process.env["LOCAL_STORAGE_ROOT"] ?? path.join(process.cwd(), ".uploads");

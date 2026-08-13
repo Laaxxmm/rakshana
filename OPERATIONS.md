@@ -35,7 +35,7 @@ runbook for incidents, backups, and routine maintenance.
    | `AUTH_SECRET` | output of `openssl rand -base64 32` | Different from dev value |
    | `AUTH_URL` | `https://<your-railway-domain>.up.railway.app` | Update after first deploy gives you a domain |
    | `AUTH_TRUST_HOST` | `true` | Required behind Railway's edge proxy |
-   | `STORAGE_BACKEND` | `local` | Switch to `r2` later (see §6) |
+   | `STORAGE_BACKEND` | `r2` | Plus the four `R2_*` vars — see §6. `local` loses every upload on redeploy |
    | `EMAIL_DRIVER` | `smtp` | or `console` for testing |
    | `SMTP_HOST` | `smtp.gmail.com` | |
    | `SMTP_PORT` | `465` | |
@@ -169,28 +169,43 @@ When cron ships, scheduled invocations will write `JobRun` rows.
 
 ## 6. Storage backend
 
-**`STORAGE_BACKEND=local`** (current default) writes receipts / vouchers /
-report PDFs to the Railway container's filesystem under `/.uploads`.
+**`STORAGE_BACKEND=local`** (default) writes logos, signatures, donor KYC
+documents, receipts / vouchers and report PDFs to the container's filesystem
+under `/.uploads`.
 
 > ⚠️ **Railway containers are ephemeral.** On every restart / redeploy the
-> local filesystem resets. Files written between deploys are lost. This is
-> fine for early operation but you must move to `r2` (or any S3-compatible
-> bucket) before going production-critical.
+> local filesystem resets and every uploaded file is gone — logos, signatures
+> and donor KYC documents included. `local` is for dev and CI only. Any
+> deployed environment must run `STORAGE_BACKEND=r2`.
 
-**Migrating to Cloudflare R2:**
+**`STORAGE_BACKEND=r2`** stores the same keys as objects in Cloudflare R2
+(S3-compatible). Content-type is kept as native object metadata. Reads are
+still proxied through `/api/files/[...]` so the org-scope check runs on every
+request — the bucket stays private, no public or presigned URLs.
 
-1. Cloudflare → R2 → create a bucket `rakshana-prod`
-2. R2 → Manage R2 API Tokens → create one with Object Read & Write scope
-3. Add Railway env vars:
+**Setting up Cloudflare R2:**
+
+1. Cloudflare → R2 → create a bucket, e.g. `rakshana-prod`. Leave public
+   access **disabled**.
+2. R2 → Manage R2 API Tokens → create a token with **Object Read & Write**
+   scoped to that bucket. Copy the Access Key ID and Secret Access Key — the
+   secret is shown once.
+3. Note the Account ID from the R2 overview page; the adapter talks to
+   `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` with region `auto`.
+4. Add Railway env vars:
    - `STORAGE_BACKEND=r2`
    - `R2_ACCOUNT_ID=<cloudflare account id>`
    - `R2_ACCESS_KEY_ID=<token id>`
    - `R2_SECRET_ACCESS_KEY=<token secret>`
    - `R2_BUCKET_NAME=rakshana-prod`
-4. `src/lib/storage/r2-adapter.ts` is a stub — flesh it out when you flip
-   the switch.
-5. Run a one-off script to copy existing files: `rsync` the
-   container's `/.uploads` to your R2 bucket.
+5. Redeploy, then upload an org logo and reload the branding page. If a var
+   is missing the request fails with `[storage] STORAGE_BACKEND=r2 but
+   missing env: …` naming it — the client is built on first use, so a
+   misconfigured deploy still boots.
+6. Migrating existing files: copy the container's `/.uploads` tree into the
+   bucket preserving relative paths (`rclone copy .uploads r2:rakshana-prod`).
+   Skip the `.meta.json` sidecars — they are a local-adapter detail; set the
+   content-type on the objects instead, or re-upload through the app.
 
 ---
 

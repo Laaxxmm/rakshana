@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
 import { toast } from "sonner";
 import { IconSearch, IconX, IconUser } from "@tabler/icons-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,8 +51,28 @@ type Category = {
 type ProjectItem = { id: string; code: string; name: string };
 type Float = { id: string; name: string; currentBalance: string };
 
+// Fields that live inside the collapsed "More options" disclosure — an error on
+// any of these has to force the disclosure open or the message is invisible.
+const ADVANCED_FIELDS = new Set([
+  "expenseDate",
+  "projectId",
+  "tdsSection",
+  "tdsRate",
+  "gstRate",
+  "mode",
+  "paymentRef",
+  "bankAccountId",
+  "pettyCashFloatId",
+  "description",
+]);
+
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function FieldError({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return <p className="mt-1 text-[11px] text-[color:var(--danger)]">{msg}</p>;
 }
 
 export function RecordExpenseForm({
@@ -122,6 +142,14 @@ export function RecordExpenseForm({
   const [pettyCashFloatId, setPettyCashFloatId] = React.useState<string>(floats[0]?.id ?? "");
   const [description, setDescription] = React.useState("");
 
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const [errors, setErrors] = React.useState<Record<string, string>>({});
+
+  function showErrors(next: Record<string, string>) {
+    setErrors(next);
+    if (Object.keys(next).some((f) => ADVANCED_FIELDS.has(f))) setMoreOpen(true);
+  }
+
   // ----- Auto-suggest TDS section from vendor default -----
   React.useEffect(() => {
     if (vendor?.defaultTdsSection && !tdsSection) {
@@ -166,27 +194,43 @@ export function RecordExpenseForm({
       );
       router.push(`/expenses?open=${data.expenseId}`);
     },
-    onError: ({ error }) => toast.error(error.serverError ?? "Could not save"),
+    onError: ({ error }) => {
+      // Map Zod field errors onto the fields themselves so a rule that fires
+      // inside "More options" (payment ref, bank, description) opens it.
+      const v = error.validationErrors as Record<string, { _errors?: string[] }> | undefined;
+      const next: Record<string, string> = {};
+      if (v) {
+        for (const [field, issue] of Object.entries(v)) {
+          if (field === "_errors") continue;
+          const msg = issue?._errors?.[0];
+          if (msg) next[field] = msg;
+        }
+      }
+      if (Object.keys(next).length > 0) {
+        showErrors(next);
+        toast.error(Object.values(next)[0]);
+        return;
+      }
+      toast.error(error.serverError ?? "Could not save");
+    },
   });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!vendor && !cashPayee) {
-      toast.error("Pick a vendor or enter a cash payee");
+    const next: Record<string, string> = {};
+    if (!vendor && !cashPayee.trim()) {
+      next.vendorId = "Pick a vendor — or enter a one-off cash payee name";
+    }
+    if (gross <= 0) next.grossAmount = "Enter an amount";
+    if (description.trim().length < 5) next.description = "Description (5–500 chars)";
+    if (projectRequired && !projectId) next.projectId = "This category requires a project";
+    if (tdsApplicable && !tdsSection) next.tdsSection = "Pick a TDS section";
+    if (Object.keys(next).length > 0) {
+      showErrors(next);
+      toast.error(Object.values(next)[0]);
       return;
     }
-    if (gross <= 0) {
-      toast.error("Enter an amount");
-      return;
-    }
-    if (description.trim().length < 5) {
-      toast.error("Description must be at least 5 characters");
-      return;
-    }
-    if (projectRequired && !projectId) {
-      toast.error("This category requires a project");
-      return;
-    }
+    setErrors({});
     submit.execute({
       vendorId: vendor?.id ?? null,
       cashPayeeName: vendor ? null : cashPayee.trim() || null,
@@ -215,170 +259,114 @@ export function RecordExpenseForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-5 lg:grid-cols-[1fr_360px]">
-      <div className="space-y-5">
-        {/* Vendor */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Paid to</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {vendor ? (
-              <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-canvas p-3">
-                <div>
-                  <p className="font-display text-lg">{vendor.name}</p>
-                  <p className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
-                    {vendor.defaultTdsSection ? (
-                      <Badge variant="outline" className="font-mono text-[10px]">
-                        TDS {vendor.defaultTdsSection}
-                      </Badge>
-                    ) : null}
-                    {vendor.pan ? (
-                      <span className="font-mono">{vendor.pan}</span>
-                    ) : (
-                      <span className="text-[color:var(--warning)]">no PAN</span>
-                    )}
-                    {vendor.gstin ? (
-                      <span className="font-mono text-xs">{vendor.gstin}</span>
-                    ) : null}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Change vendor"
-                  onClick={() => setVendor(null)}
-                >
-                  <IconX size={14} />
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="relative">
-                  <IconSearch
-                    size={14}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle"
-                  />
-                  <Input
-                    placeholder="Search vendor by name, PAN, or GSTIN…"
-                    value={vendorQuery}
-                    onChange={(e) => onVendorQuery(e.target.value)}
-                    onFocus={() => setVendorOpen(true)}
-                    className="pl-8"
-                  />
-                </div>
-                {vendorOpen && (vendorResults.length > 0 || vendorQuery.length >= 2) ? (
-                  <div className="rounded-md border border-border bg-surface">
-                    {vendorResults.length === 0 ? (
-                      <p className="px-3 py-4 text-sm text-ink-muted">
-                        No vendors match &ldquo;{vendorQuery}&rdquo;
-                      </p>
-                    ) : (
-                      <ul className="max-h-60 overflow-auto py-1">
-                        {vendorResults.map((v) => (
-                          <li key={v.id}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setVendor(v);
-                                setVendorOpen(false);
-                                setVendorQuery("");
-                              }}
-                              className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
-                            >
-                              <IconUser size={14} className="mt-0.5 shrink-0 text-ink-subtle" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium">{v.name}</p>
-                                <p className="text-[11px] text-ink-subtle">
-                                  {v.defaultTdsSection ? `TDS ${v.defaultTdsSection} · ` : ""}
-                                  {v.pan ? <span className="font-mono">{v.pan}</span> : "no PAN"}
-                                </p>
-                              </div>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ) : null}
-                <div className="rounded-md border border-border bg-surface-sunken/40 p-3">
-                  <Label className="text-xs">Or one-off cash payee (no master record)</Label>
-                  <Input
-                    placeholder="e.g. Chai shop on 80 ft Road"
-                    value={cashPayee}
-                    onChange={(e) => setCashPayee(e.target.value)}
-                  />
-                  {cashPayee ? (
-                    <p className="mt-1 text-[11px] text-[color:var(--warning)]">
-                      Cash payee mode bypasses vendor TDS tracking — auditor may ask for supporting bill.
-                    </p>
+    <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
+      {/* Paid to */}
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <Label className="text-xs">Paid to</Label>
+          {vendor ? (
+            <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-canvas p-3">
+              <div>
+                <p className="font-display text-lg">{vendor.name}</p>
+                <p className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
+                  {vendor.defaultTdsSection ? (
+                    <Badge variant="outline" className="font-mono text-[10px]">
+                      TDS {vendor.defaultTdsSection}
+                    </Badge>
                   ) : null}
+                  {vendor.pan ? (
+                    <span className="font-mono">{vendor.pan}</span>
+                  ) : (
+                    <span className="text-[color:var(--warning)]">no PAN</span>
+                  )}
+                  {vendor.gstin ? (
+                    <span className="font-mono text-xs">{vendor.gstin}</span>
+                  ) : null}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Change vendor"
+                onClick={() => setVendor(null)}
+              >
+                <IconX size={14} />
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="relative">
+                <IconSearch
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle"
+                />
+                <Input
+                  placeholder="Search vendor by name, PAN, or GSTIN…"
+                  value={vendorQuery}
+                  onChange={(e) => onVendorQuery(e.target.value)}
+                  onFocus={() => setVendorOpen(true)}
+                  className="pl-8"
+                />
+              </div>
+              {vendorOpen && (vendorResults.length > 0 || vendorQuery.length >= 2) ? (
+                <div className="rounded-md border border-border bg-surface">
+                  {vendorResults.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-ink-muted">
+                      No vendors match &ldquo;{vendorQuery}&rdquo;
+                    </p>
+                  ) : (
+                    <ul className="max-h-60 overflow-auto py-1">
+                      {vendorResults.map((v) => (
+                        <li key={v.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVendor(v);
+                              setVendorOpen(false);
+                              setVendorQuery("");
+                            }}
+                            className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
+                          >
+                            <IconUser size={14} className="mt-0.5 shrink-0 text-ink-subtle" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium">{v.name}</p>
+                              <p className="text-[11px] text-ink-subtle">
+                                {v.defaultTdsSection ? `TDS ${v.defaultTdsSection} · ` : ""}
+                                {v.pan ? <span className="font-mono">{v.pan}</span> : "no PAN"}
+                              </p>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
+              ) : null}
+              <div className="rounded-md border border-border bg-surface-sunken/40 p-3">
+                <Label className="text-xs">Or one-off cash payee (no master record)</Label>
+                <Input
+                  placeholder="e.g. Chai shop on 80 ft Road"
+                  value={cashPayee}
+                  onChange={(e) => setCashPayee(e.target.value)}
+                />
+                {cashPayee ? (
+                  <p className="mt-1 text-[11px] text-[color:var(--warning)]">
+                    Cash payee mode bypasses vendor TDS tracking — auditor may ask for supporting bill.
+                  </p>
+                ) : null}
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Date + Category + Project */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Classification</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div>
-              <Label className="text-xs">Date</Label>
-              <Input
-                type="date"
-                value={expenseDate}
-                onChange={(e) => setExpenseDate(e.target.value)}
-              />
             </div>
-            <div>
-              <Label className="text-xs">Category</Label>
-              <Select value={categoryId} onValueChange={(v) => v && setCategoryId(v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pick a category…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.parentId ? "↳ " : ""}
-                      {c.name}
-                      {c.requiresProject ? " · project required" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {projectRequired || projects.length > 1 ? (
-              <div className="md:col-span-2">
-                <Label className="text-xs">
-                  Project {projectRequired ? <span className="text-[color:var(--danger)]">*</span> : null}
-                </Label>
-                <Select value={projectId} onValueChange={(v) => v && setProjectId(v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pick a project…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name} ({p.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+          )}
+          <FieldError msg={errors.vendorId ?? errors.cashPayeeName} />
+        </CardContent>
+      </Card>
 
-        {/* Gross amount */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Gross amount</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+      {/* Amount + live summary + category */}
+      <Card>
+        <CardContent className="space-y-4 p-5">
+          <div>
+            <Label className="text-xs">Amount</Label>
             <div className="flex items-baseline gap-2">
               <span className="font-display text-3xl text-ink-subtle">₹</span>
               <Input
@@ -390,239 +378,297 @@ export function RecordExpenseForm({
               />
             </div>
             {gross > 0 ? (
-              <p className="text-xs italic text-ink-muted">{inrInWords(grossAmount)}</p>
+              <p className="mt-1 text-xs italic text-ink-muted">{inrInWords(grossAmount)}</p>
             ) : null}
+            <FieldError msg={errors.grossAmount} />
             {billRequired ? (
-              <p className="text-[11px] text-[color:var(--warning)]">
+              <p className="mt-1 text-[11px] text-[color:var(--warning)]">
                 Bill upload required above ₹{Number(billRequiredThreshold).toLocaleString("en-IN")}.
                 Phase 3.5 will wire the upload control — for now the voucher will submit without it.
               </p>
             ) : null}
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* TDS */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              TDS
-              <label className="inline-flex items-center gap-1 text-xs font-normal">
-                <Checkbox checked={tdsApplicable} onCheckedChange={(v) => setTdsApplicable(!!v)} />
-                Applicable
-              </label>
-            </CardTitle>
-          </CardHeader>
-          {tdsApplicable ? (
-            <CardContent className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <Label className="text-xs">Section</Label>
-                  <Select value={tdsSection} onValueChange={(v) => v && setTdsSection(v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Pick a section…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TDS_SECTION_KEYS.map((k) => (
-                        <SelectItem key={k} value={k}>
-                          <span className="font-mono text-xs mr-2">{k}</span>
-                          {TDS_SECTIONS[k].name}
-                          {TDS_SECTIONS[k].defaultRate !== null ? ` · ${TDS_SECTIONS[k].defaultRate}%` : null}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <div className="text-xs">
-                    <p className="text-ink-subtle">TDS computed</p>
-                    <p className="font-mono text-sm">
-                      {formatINRWithSymbol(String(tdsAmount), { paise: true })} at {tdsRate}%
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          ) : null}
-        </Card>
-
-        {/* GST */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              GST
-              <label className="inline-flex items-center gap-1 text-xs font-normal">
-                <Checkbox checked={gstApplicable} onCheckedChange={(v) => setGstApplicable(!!v)} />
-                Applicable
-              </label>
-            </CardTitle>
-          </CardHeader>
-          {gstApplicable ? (
-            <CardContent className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div>
-                  <Label className="text-xs">Rate</Label>
-                  <Select
-                    value={String(gstRate)}
-                    onValueChange={(v) => v && setGstRate(Number(v))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {GST_RATES.map((r) => (
-                        <SelectItem key={r} value={String(r)}>
-                          {r}%
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={itcEligible} onCheckedChange={(v) => setItcEligible(!!v)} />
-                    ITC eligible
-                  </label>
-                </div>
-              </div>
-              <p className="text-xs text-ink-muted">
-                {isInterState
-                  ? `IGST ${formatINRWithSymbol(String(igst), { paise: true })}`
-                  : `CGST ${formatINRWithSymbol(String(cgst), { paise: true })} · SGST ${formatINRWithSymbol(String(sgst), { paise: true })}`}
-              </p>
-            </CardContent>
-          ) : null}
-        </Card>
-
-        {/* Mode + bank/petty */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Payment</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <Label className="text-xs">Mode</Label>
-              <Select value={mode} onValueChange={(v) => v && setMode(v as typeof mode)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_MODES.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {mode !== "CASH" ? (
-              <div>
-                <Label className="text-xs">Reference</Label>
-                <Input
-                  value={paymentRef}
-                  onChange={(e) => setPaymentRef(e.target.value)}
-                  className="font-mono"
-                />
-              </div>
-            ) : null}
-            {floats.length > 0 ? (
-              <div className="rounded-md border border-border bg-surface-sunken/40 p-3 space-y-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={isPettyCash} onCheckedChange={(v) => setIsPettyCash(!!v)} />
-                  Pay from petty cash
-                </label>
-                {isPettyCash ? (
-                  <Select value={pettyCashFloatId} onValueChange={(v) => v && setPettyCashFloatId(v)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {floats.map((f) => (
-                        <SelectItem key={f.id} value={f.id}>
-                          {f.name} · balance {formatINRWithSymbol(f.currentBalance, { paise: true })}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
-              </div>
-            ) : null}
-            {!isPettyCash ? (
-              <div>
-                <Label className="text-xs">Bank account debited</Label>
-                <Select
-                  value={bankAccountId}
-                  onValueChange={(v) => v && setBankAccountId(v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {bankAccounts.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.bankName} · ending {b.accountNumber.slice(-4)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        {/* Description */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Description</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              rows={3}
-              placeholder="What is this expense for?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <aside className="lg:sticky lg:top-4 self-start space-y-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Preview</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">Vendor</p>
-              <p className="font-display text-lg">
-                {vendor?.name || cashPayee || <span className="italic text-ink-subtle">—</span>}
-              </p>
-            </div>
+          {/* The gross/TDS/net line is the point of this screen — never collapsed */}
+          <div className="grid grid-cols-3 gap-3 rounded-md border border-border bg-surface-sunken/40 p-3 text-sm">
             <div>
               <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">Gross</p>
-              <p className="font-display text-2xl">
+              <p className="font-mono">
                 {gross > 0 ? formatINRWithSymbol(grossAmount, { paise: true }) : "—"}
               </p>
             </div>
-            {tdsApplicable && tdsAmount > 0 ? (
-              <div className="text-xs text-ink-muted">
-                <p>TDS {tdsSection} @ {tdsRate}%: −{formatINRWithSymbol(String(tdsAmount), { paise: true })}</p>
-              </div>
-            ) : null}
-            <div className="border-t border-border pt-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">
+                TDS{tdsApplicable && tdsSection ? ` ${tdsSection} @ ${tdsRate}%` : ""}
+              </p>
+              <p className="font-mono">
+                {tdsAmount > 0 ? `−${formatINRWithSymbol(String(tdsAmount), { paise: true })}` : "—"}
+              </p>
+            </div>
+            <div>
               <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">Net payable</p>
-              <p className="font-display text-2xl">
+              <p className="font-display text-lg">
                 {gross > 0 ? formatINRWithSymbol(String(netPayable), { paise: true }) : "—"}
               </p>
             </div>
-          </CardContent>
-        </Card>
-        <div className="rounded-md border border-border bg-surface p-3 flex items-center justify-between gap-2">
-          <p className="text-[11px] text-ink-subtle">Voucher assigned on save</p>
-          <Button type="submit" disabled={submit.isExecuting}>
-            {submit.isExecuting ? "Saving…" : "Submit"}
-          </Button>
-        </div>
-      </aside>
+          </div>
+
+          <div>
+            <Label className="text-xs">Category</Label>
+            <Select value={categoryId} onValueChange={(v) => v && setCategoryId(v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Pick a category…" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.parentId ? "↳ " : ""}
+                    {c.name}
+                    {c.requiresProject ? " · project required" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FieldError msg={errors.categoryId} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Everything else */}
+      <Card>
+        <CardContent className="p-5">
+          <details
+            open={moreOpen}
+            onToggle={(e) => setMoreOpen(e.currentTarget.open)}
+          >
+            <summary className="cursor-pointer text-sm text-ink">
+              More options
+              <span className="ml-2 text-xs text-ink-subtle">
+                date, project, TDS, GST, payment, description
+              </span>
+            </summary>
+
+            <div className="mt-4 space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label className="text-xs">Date</Label>
+                  <Input
+                    type="date"
+                    value={expenseDate}
+                    onChange={(e) => setExpenseDate(e.target.value)}
+                  />
+                  <FieldError msg={errors.expenseDate} />
+                </div>
+                <div>
+                  <Label className="text-xs">
+                    Project{" "}
+                    {projectRequired ? <span className="text-[color:var(--danger)]">*</span> : null}
+                  </Label>
+                  <Select value={projectId} onValueChange={(v) => v && setProjectId(v)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Pick a project…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name} ({p.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FieldError msg={errors.projectId} />
+                </div>
+              </div>
+
+              {/* TDS */}
+              <div className="space-y-2 border-t border-border pt-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={tdsApplicable} onCheckedChange={(v) => setTdsApplicable(!!v)} />
+                  TDS applicable
+                </label>
+                {tdsApplicable ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <Label className="text-xs">Section</Label>
+                      <Select value={tdsSection} onValueChange={(v) => v && setTdsSection(v)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Pick a section…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TDS_SECTION_KEYS.map((k) => (
+                            <SelectItem key={k} value={k}>
+                              <span className="font-mono text-xs mr-2">{k}</span>
+                              {TDS_SECTIONS[k].name}
+                              {TDS_SECTIONS[k].defaultRate !== null
+                                ? ` · ${TDS_SECTIONS[k].defaultRate}%`
+                                : null}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldError msg={errors.tdsSection ?? errors.tdsRate} />
+                    </div>
+                    <div className="flex items-end">
+                      <div className="text-xs">
+                        <p className="text-ink-subtle">TDS computed</p>
+                        <p className="font-mono text-sm">
+                          {formatINRWithSymbol(String(tdsAmount), { paise: true })} at {tdsRate}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* GST */}
+              <div className="space-y-2 border-t border-border pt-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={gstApplicable} onCheckedChange={(v) => setGstApplicable(!!v)} />
+                  GST applicable
+                </label>
+                {gstApplicable ? (
+                  <div className="space-y-2">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <Label className="text-xs">Rate</Label>
+                        <Select
+                          value={String(gstRate)}
+                          onValueChange={(v) => v && setGstRate(Number(v))}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {GST_RATES.map((r) => (
+                              <SelectItem key={r} value={String(r)}>
+                                {r}%
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FieldError msg={errors.gstRate} />
+                      </div>
+                      <div className="flex items-end">
+                        <label className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={itcEligible}
+                            onCheckedChange={(v) => setItcEligible(!!v)}
+                          />
+                          ITC eligible
+                        </label>
+                      </div>
+                    </div>
+                    <p className="text-xs text-ink-muted">
+                      {isInterState
+                        ? `IGST ${formatINRWithSymbol(String(igst), { paise: true })}`
+                        : `CGST ${formatINRWithSymbol(String(cgst), { paise: true })} · SGST ${formatINRWithSymbol(String(sgst), { paise: true })}`}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Payment */}
+              <div className="space-y-3 border-t border-border pt-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label className="text-xs">Mode</Label>
+                    <Select value={mode} onValueChange={(v) => v && setMode(v as typeof mode)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAYMENT_MODES.map((m) => (
+                          <SelectItem key={m} value={m}>
+                            {m}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldError msg={errors.mode} />
+                  </div>
+                  {mode !== "CASH" ? (
+                    <div>
+                      <Label className="text-xs">Reference</Label>
+                      <Input
+                        value={paymentRef}
+                        onChange={(e) => setPaymentRef(e.target.value)}
+                        className="font-mono"
+                      />
+                      <FieldError msg={errors.paymentRef} />
+                    </div>
+                  ) : null}
+                </div>
+                {floats.length > 0 ? (
+                  <div className="space-y-2 rounded-md border border-border bg-surface-sunken/40 p-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox checked={isPettyCash} onCheckedChange={(v) => setIsPettyCash(!!v)} />
+                      Pay from petty cash
+                    </label>
+                    {isPettyCash ? (
+                      <>
+                        <Select
+                          value={pettyCashFloatId}
+                          onValueChange={(v) => v && setPettyCashFloatId(v)}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {floats.map((f) => (
+                              <SelectItem key={f.id} value={f.id}>
+                                {f.name} · balance{" "}
+                                {formatINRWithSymbol(f.currentBalance, { paise: true })}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FieldError msg={errors.pettyCashFloatId} />
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+                {!isPettyCash ? (
+                  <div>
+                    <Label className="text-xs">Bank account debited</Label>
+                    <Select value={bankAccountId} onValueChange={(v) => v && setBankAccountId(v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {bankAccounts.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.bankName} · ending {b.accountNumber.slice(-4)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldError msg={errors.bankAccountId} />
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Description */}
+              <div className="border-t border-border pt-4">
+                <Label className="text-xs">Description</Label>
+                <Textarea
+                  rows={3}
+                  placeholder="What is this expense for?"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+                <FieldError msg={errors.description} />
+              </div>
+            </div>
+          </details>
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface p-3">
+        <p className="text-[11px] text-ink-subtle">Voucher assigned on save</p>
+        <Button type="submit" disabled={submit.isExecuting}>
+          {submit.isExecuting ? "Saving…" : "Submit"}
+        </Button>
+      </div>
     </form>
   );
 }

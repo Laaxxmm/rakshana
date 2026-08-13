@@ -114,7 +114,6 @@ model Organisation {
   form10bdFilings    Form10BDFiling[]
   itFilings          ItFiling[]
   gstInvoices        GstInvoice[]
-  gstInvoiceSeries   GstInvoiceSeries[]
   voucherSeries      VoucherSeries[]
   certificateSeries  CertificateSeries[]
   accumulations      Accumulation[]
@@ -339,43 +338,11 @@ model Membership {
   organisationId String
   organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   role           OrgRole
-  customRoleId   String?
-  customRole     Role?    @relation(fields: [customRoleId], references: [id])
   isActive       Boolean  @default(true)
   joinedAt       DateTime @default(now())
 
   @@unique([userId, organisationId])
   @@index([organisationId, role])
-}
-
-// Reserved for Phase 2 custom roles. Built-in roles use OrgRole enum.
-model Role {
-  id             String   @id @default(cuid())
-  organisationId String
-  name           String
-  description    String?
-  permissions    RolePermission[]
-  memberships    Membership[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  @@unique([organisationId, name])
-}
-
-model Permission {
-  id          String @id @default(cuid())
-  key         String @unique // e.g. "donation.create", "expense.approve"
-  description String?
-  roles       RolePermission[]
-}
-
-model RolePermission {
-  roleId       String
-  permissionId String
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@id([roleId, permissionId])
 }
 
 // =====================================================================
@@ -429,7 +396,6 @@ model Donor {
   updatedAt       DateTime @updatedAt
 
   donations       Donation[]
-  documents       DonorDocument[]
   communications  Communication[]
   form10BeIssued  Form10BECertificate[]
 
@@ -437,16 +403,6 @@ model Donor {
   @@index([organisationId, donorType])
   @@index([organisationId, name])
   @@index([organisationId, isAnonymousBucket])
-}
-
-model DonorDocument {
-  id        String @id @default(cuid())
-  donorId   String
-  donor     Donor  @relation(fields: [donorId], references: [id], onDelete: Cascade)
-  category  DonorDocumentCategory
-  title     String
-  fileUrl   String
-  createdAt DateTime @default(now())
 }
 
 model Communication {
@@ -1107,21 +1063,6 @@ model FinancialYearSummary {
 // 7. GST COMPLIANCE
 // =====================================================================
 
-model GstInvoiceSeries {
-  id              String @id @default(cuid())
-  organisationId  String
-  organisation    Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  name            String
-  prefix          String
-  financialYear   String
-  currentNumber   Int @default(0)
-  width           Int @default(4)
-  isActive        Boolean @default(true)
-  createdAt       DateTime @default(now())
-
-  @@unique([organisationId, name, financialYear])
-}
-
 // Phase 3 — voucher number allocator series.
 // Separate from ReceiptSeries because vouchers have different audit treatment
 // (general / petty cash / recurring run on independent counters).
@@ -1450,14 +1391,6 @@ enum DonorStatus {
   BLOCKED
 }
 
-enum DonorDocumentCategory {
-  PAN_CARD
-  AADHAAR
-  ID_PROOF
-  CSR_FORM
-  OTHER
-}
-
 enum CommunicationChannel {
   EMAIL
   WHATSAPP
@@ -1747,23 +1680,41 @@ enum ReportStatus {
   FAILED
 }
 
-/// Cron job health log. Phase 6 cron service writes one row per run.
-model JobRun {
-  id                String   @id @default(cuid())
-  jobName           String
-  startedAt         DateTime @default(now())
-  finishedAt        DateTime?
-  status            JobRunStatus @default(RUNNING)
-  errorMessage      String?
-  recordsProcessed  Int      @default(0)
-  meta              Json?
 
-  @@index([jobName, startedAt])
-  @@index([status])
+// =====================================================================
+// 12. PAYMENT COLLECTION (Razorpay)
+// =====================================================================
+
+// One row per payment link / QR handed to a donor. Created before the
+// donor pays; the webhook flips it to PAID and stamps `donationId` once
+// the Donation + 80G receipt exist. No relation fields — the webhook
+// resolves the tenant from `organisationId` here, never from the payload.
+model PaymentIntent {
+  id                String   @id @default(cuid())
+  organisationId    String
+
+  razorpayOrderId   String   @unique   // payment-link id (plink_…) or order id
+  // Unique so a replayed webhook can never convert the same payment twice.
+  razorpayPaymentId String?  @unique
+
+  amount            Decimal  @db.Decimal(18, 2)
+  status            PaymentIntentStatus @default(CREATED)
+
+  donorName         String?
+  donorPhone        String?
+  donorEmail        String?
+  purpose           DonationPurpose @default(GENERAL)
+
+  donationId        String?  // set once the payment is converted
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([organisationId, status])
 }
 
-enum JobRunStatus {
-  RUNNING
-  SUCCESS
-  FAILURE
+enum PaymentIntentStatus {
+  CREATED
+  PAID
+  FAILED
 }

@@ -160,18 +160,6 @@ async function main() {
       isActive: true,
     },
   });
-  await prisma.gstInvoiceSeries.upsert({
-    where: { organisationId_name_financialYear: { organisationId: org.id, name: "Default", financialYear: fy } },
-    update: {},
-    create: {
-      organisationId: org.id,
-      name: "Default",
-      prefix: "INV",
-      financialYear: fy,
-      width: 4,
-      isActive: true,
-    },
-  });
 
   // -------------------------------------------------------------------
   // 6. Approval policies (₹ tier → required role)

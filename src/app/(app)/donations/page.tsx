@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { IconPlus } from "@tabler/icons-react";
+import { IconPlus, IconQrcode } from "@tabler/icons-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -81,13 +81,22 @@ export default async function DonationsPage({
             {stats.donors.size} unique {stats.donors.size === 1 ? "donor" : "donors"}
           </p>
         </div>
-        <Link
-          href="/donations/new"
-          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-[color:var(--primary-hover)]"
-        >
-          <IconPlus size={14} />
-          Record donation
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/donations/collect"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-ink hover:bg-muted"
+          >
+            <IconQrcode size={14} />
+            Collect online
+          </Link>
+          <Link
+            href="/donations/new"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-[color:var(--primary-hover)]"
+          >
+            <IconPlus size={14} />
+            Record donation
+          </Link>
+        </div>
       </header>
 
       <Card>

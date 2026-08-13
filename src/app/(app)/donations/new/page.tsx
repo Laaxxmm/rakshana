@@ -50,7 +50,7 @@ export default async function RecordDonationPage({
   const limit = Math.max(ANON_DONATION_FIXED_FLOOR, fyTotal * (ANON_DONATION_PERCENT_FLOOR / 100));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <Link
         href="/donations"
         className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"

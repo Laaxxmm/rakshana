@@ -22,6 +22,8 @@ export const SCOPED_MODELS = new Set<string>([
   "Communication",
   "ReceiptSeries",
   "Donation",
+  "VoucherSeries",
+  "CertificateSeries",
 
   // Expenses
   "Vendor",
@@ -42,7 +44,6 @@ export const SCOPED_MODELS = new Set<string>([
   "Form10BECertificate",
   "ItFiling",
   "FinancialYearSummary",
-  "GstInvoiceSeries",
   "GstInvoice",
   "GstFiling",
   "TdsEntry",
@@ -50,6 +51,13 @@ export const SCOPED_MODELS = new Set<string>([
   "TdsReturn",
   "LdcCertificate",
   "ComplianceItem",
+  "Accumulation",
+
+  // Reports
+  "Report",
+
+  // Payments
+  "PaymentIntent",
 
   // System per-tenant
   "Notification",
@@ -63,7 +71,6 @@ export const SCOPED_MODELS = new Set<string>([
  * these through unchanged.
  */
 export const PARENT_SCOPED_MODELS = new Set<string>([
-  "DonorDocument",
   "ExpenseApproval",
   "PettyCashTopUp",
   "ProjectBudgetHead",
@@ -77,8 +84,8 @@ export const PARENT_SCOPED_MODELS = new Set<string>([
 ]);
 
 /**
- * True system tables — never scoped. Used by NextAuth, RBAC config,
- * and tenant management.
+ * True system tables — never scoped. Used by NextAuth and tenant
+ * management.
  */
 export const SYSTEM_MODELS = new Set<string>([
   "User",
@@ -87,7 +94,4 @@ export const SYSTEM_MODELS = new Set<string>([
   "VerificationToken",
   "Organisation",
   "Membership",
-  "Role",
-  "Permission",
-  "RolePermission",
 ]);

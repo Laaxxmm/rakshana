@@ -8,8 +8,8 @@ import type { OrgRole } from "@prisma/client";
  * of truth — every Server Action and route handler must call
  * `requirePermission(key)` before mutating state.
  *
- * If you need a role with custom permissions, use the `Role` / `Permission`
- * tables (Phase 2+). Built-in roles are immutable.
+ * The built-in `OrgRole` set is the whole model — there are no per-org custom
+ * roles, so this table is the only place a permission is granted.
  */
 export const PERMISSIONS = {
   // ----- Organisation & users (OWNER-only by default) -----
@@ -152,6 +152,9 @@ export const PERMISSIONS = {
   "compliance.tds.return.markFiled":   ["OWNER", "ADMIN"],
   "compliance.tds.form16.generate":    ["OWNER", "ADMIN"],
   "compliance.calendar.refresh":       ["OWNER"],
+
+  // ----- Payment collection (Razorpay) -----
+  "payment.link.create":               ["OWNER", "ADMIN", "ACCOUNTANT"],
 
   // Reports module (Phase 6) — generation is broadly available, deletion is OWNER-only.
   "report.generate":                   ["OWNER", "ADMIN", "ACCOUNTANT", "AUDITOR"],

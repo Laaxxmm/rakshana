@@ -39,7 +39,7 @@ export default async function NewExpensePage({
   ]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="mx-auto max-w-2xl space-y-4">
       <Link
         href="/expenses"
         className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"

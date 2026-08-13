@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
 import { toast } from "sonner";
@@ -10,11 +11,12 @@ import {
   IconX,
   IconUser,
   IconShieldCheck,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { recordDonation } from "../actions";
 import { createDonorMini } from "../../donors/actions";
 import { searchDonors } from "./donor-search";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -76,6 +78,29 @@ const MODE_LABELS: Record<string, string> = {
 };
 const COMMON_MODES = ["CASH", "CHEQUE", "NEFT", "UPI", "IN_KIND"] as const;
 
+/**
+ * Fields that live behind the "More options" disclosure. A validation error on
+ * any of them has to force the disclosure open, otherwise the user is told to
+ * fix something they cannot see.
+ */
+const ADVANCED_FIELDS = new Set([
+  "donationDate",
+  "mode",
+  "paymentRef",
+  "paymentDate",
+  "bankAccountId",
+  "purpose",
+  "projectId",
+  "isCsr",
+  "csrCompanyCin",
+  "isFcra",
+  "is80GEligible",
+  "isInKind",
+  "inKindDescription",
+  "inKindValuationMethod",
+  "remarks",
+]);
+
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -94,6 +119,29 @@ function thisMondayIso(): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * next-safe-action hands back either the formatted (`{ _errors: [] }`) or the
+ * flattened (`string[]`) shape depending on config — accept both so a schema
+ * message never degrades into a generic failure toast.
+ */
+function flattenValidationErrors(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [field, issue] of Object.entries(raw as Record<string, unknown>)) {
+    if (field === "_errors") continue;
+    const msg = Array.isArray(issue)
+      ? issue[0]
+      : (issue as { _errors?: string[] })?._errors?.[0];
+    if (typeof msg === "string") out[field] = msg;
+  }
+  return out;
+}
+
+function FieldError({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return <p className="mt-1 text-xs text-[color:var(--danger)]">{msg}</p>;
+}
+
 export function RecordDonationForm({
   fy,
   bankAccounts,
@@ -109,8 +157,9 @@ export function RecordDonationForm({
 }) {
   const router = useRouter();
 
-  // ----- Anonymous mode toggle -----
   const [isAnonymous, setIsAnonymous] = React.useState(false);
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
 
   // ----- Donor combobox state -----
   const [donor, setDonor] = React.useState<Donor | null>(initialDonor);
@@ -169,7 +218,7 @@ export function RecordDonationForm({
     onError: ({ error }) => toast.error(error.serverError ?? "Could not add donor"),
   });
 
-  // ----- Form fields -----
+  // ----- Form fields — defaults make the collapsed path valid on its own -----
   const [donationDate, setDonationDate] = React.useState(todayIso());
   const [amountStr, setAmountStr] = React.useState("");
   const amountNum = Number(amountStr) || 0;
@@ -212,7 +261,13 @@ export function RecordDonationForm({
   const showBankField = mode !== "CASH" && mode !== "IN_KIND";
   const showRefField = mode !== "CASH" && mode !== "IN_KIND";
 
-  // ----- 80G PAN warning -----
+  // Picking a foreign-source donor re-filters the bank list, which can strand
+  // the current selection outside it. Fall back to the primary of whatever is
+  // visible so the collapsed path still submits a creditable account.
+  const effectiveBankId = visibleBanks.some((b) => b.id === bankAccountId)
+    ? bankAccountId
+    : (visibleBanks.find((b) => b.isPrimary)?.id ?? visibleBanks[0]?.id ?? "");
+
   const panWarning =
     effectiveDonor &&
     !effectiveDonor.isAnonymousBucket &&
@@ -224,9 +279,16 @@ export function RecordDonationForm({
   const anonLimit = Number(anonymous?.limit ?? 0);
   const anonPct = anonLimit > 0 ? Math.min(100, (anonTotal / anonLimit) * 100) : 0;
 
-  // ----- Submit -----
+  function reportErrors(errors: Record<string, string>) {
+    setFieldErrors(errors);
+    const fields = Object.keys(errors);
+    if (fields.length === 0) return;
+    if (fields.some((f) => ADVANCED_FIELDS.has(f))) setMoreOpen(true);
+    toast.error(errors[fields[0]]);
+  }
+
   const submit = useAction(recordDonation, {
-    onSuccess: ({ data, input }) => {
+    onSuccess: ({ data }) => {
       if (!data?.ok) return;
       toast.success(`Donation recorded · receipt ${data.receiptNumber}`, {
         action: {
@@ -238,23 +300,18 @@ export function RecordDonationForm({
       setAmountStr("");
       setPaymentRef("");
       setRemarks("");
-      void input; // form state is local; reset above
+      setFieldErrors({});
     },
     onError: ({ error }) => {
-      // Surface Zod field errors when present so the user sees WHICH field
-      // is wrong (e.g. UPI/NEFT need a payment reference). Falling back to
-      // a generic "Could not record donation" hides actionable detail.
-      const v = error.validationErrors as Record<string, { _errors?: string[] }> | undefined;
-      if (v) {
-        for (const [field, issue] of Object.entries(v)) {
-          if (field === "_errors") continue;
-          const msg = issue?._errors?.[0];
-          if (msg) {
-            toast.error(`${field}: ${msg}`);
-            return;
-          }
-        }
+      // Zod field errors are surfaced in place (and the disclosure is opened)
+      // so the user sees WHICH field is wrong — e.g. UPI/NEFT need a payment
+      // reference. A generic "Could not record donation" hides that.
+      const errors = flattenValidationErrors(error.validationErrors);
+      if (Object.keys(errors).length > 0) {
+        reportErrors(errors);
+        return;
       }
+      setFieldErrors({});
       toast.error(error.serverError ?? "Could not record donation");
     },
   });
@@ -262,19 +319,20 @@ export function RecordDonationForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!effectiveDonor) {
-      toast.error("Pick a donor first");
+      reportErrors({ donorId: "Pick a donor" });
       return;
     }
     if (!amountStr || amountNum <= 0) {
-      toast.error("Enter an amount");
+      reportErrors({ amount: "Enter an amount" });
       return;
     }
+    setFieldErrors({});
     submit.execute({
       donorId: effectiveDonor.id,
       donationDate: new Date(donationDate),
       amount: amountStr,
       mode,
-      bankAccountId: showBankField ? bankAccountId : null,
+      bankAccountId: showBankField ? effectiveBankId : null,
       paymentRef: showRefField ? paymentRef || null : null,
       paymentDate: null,
       isInKind: mode === "IN_KIND",
@@ -293,210 +351,263 @@ export function RecordDonationForm({
     });
   }
 
+  // Standing in for the old preview panel: the settings hidden by the collapse,
+  // in one line, so nothing about the donation is invisible while collapsed.
+  const collapsedSummary = [
+    donationDate === todayIso() ? "Today" : formatIST(donationDate),
+    MODE_LABELS[mode],
+    purpose.replace(/_/g, " "),
+    isAnonymous ? "anonymous" : is80G ? "80G" : "no 80G",
+    showFcraNote ? "FCRA" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <form onSubmit={handleSubmit} className="grid gap-5 lg:grid-cols-[1fr_400px]">
-      <div className="space-y-5">
-        {/* Anonymous toggle */}
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
+    <form onSubmit={handleSubmit} className="mx-auto max-w-2xl space-y-4">
+      <Card>
+        <CardContent className="space-y-6 p-5">
+          {/* Donor */}
+          <div className="space-y-2">
+            <Label className="text-xs uppercase tracking-[0.16em] text-ink-subtle">Donor</Label>
+            {isAnonymous ? (
+              <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-canvas p-3">
+                <div>
+                  <p className="font-display text-lg">Anonymous Donations</p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {anonymous
+                      ? "Routes to the system Anonymous bucket. PAN and 80G are skipped."
+                      : "No Anonymous Donations bucket exists yet — seed one first."}
+                  </p>
+                </div>
+                <AnonymousMeter total={anonTotal} limit={anonLimit} pct={anonPct} />
+              </div>
+            ) : donor ? (
+              <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-canvas p-3">
+                <div>
+                  <p className="font-display text-lg">{donor.name}</p>
+                  <p className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
+                    <Badge variant="outline" className="text-[10px]">
+                      {donor.donorType}
+                    </Badge>
+                    {donor.pan ? <span className="font-mono">{donor.pan}</span> : <span>no PAN</span>}
+                    {donor.is80GEligible ? <span>· 80G eligible</span> : null}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-subtle">
+                    Lifetime {formatINRWithSymbol(donor.lifetime, { paise: true })}
+                    {donor.lastDonationDate
+                      ? ` · last donation ${formatIST(donor.lastDonationDate)}`
+                      : null}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Change donor"
+                  onClick={() => setDonor(null)}
+                >
+                  <IconX size={14} />
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="relative">
+                  <IconSearch
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle"
+                  />
+                  <Input
+                    placeholder="Search by name, PAN, or phone…"
+                    value={donorQuery}
+                    onChange={(e) => onDonorQuery(e.target.value)}
+                    onFocus={() => setDonorOpen(true)}
+                    className="pl-8"
+                  />
+                </div>
+                {donorOpen && (donorResults.length > 0 || donorQuery.length >= 2) ? (
+                  <div className="rounded-md border border-border bg-surface">
+                    {donorResults.length === 0 ? (
+                      <p className="px-3 py-4 text-sm text-ink-muted">
+                        No donors match &ldquo;{donorQuery}&rdquo;
+                      </p>
+                    ) : (
+                      <ul className="max-h-60 overflow-auto py-1">
+                        {donorResults.map((d) => (
+                          <li key={d.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDonor(d);
+                                setDonorOpen(false);
+                                setDonorQuery("");
+                              }}
+                              className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
+                            >
+                              <IconUser size={14} className="mt-0.5 shrink-0 text-ink-subtle" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium">{d.name}</p>
+                                <p className="text-[11px] text-ink-subtle">
+                                  <Badge variant="outline" className="mr-1 text-[9px]">
+                                    {d.donorType}
+                                  </Badge>
+                                  {d.pan ? <span className="font-mono">{d.pan}</span> : "no PAN"}
+                                </p>
+                              </div>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="border-t border-border">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMiniOpen(true);
+                          setDonorOpen(false);
+                          setMiniName(donorQuery);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-primary hover:bg-primary-soft/40"
+                      >
+                        <IconPlus size={14} />
+                        Add new donor
+                        {donorQuery ? <span className="text-ink-subtle">&ldquo;{donorQuery}&rdquo;</span> : null}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+            <FieldError msg={fieldErrors.donorId} />
+
+            {miniOpen && !isAnonymous ? (
+              <div className="rounded-md border border-primary/30 bg-primary-soft/30 p-4 space-y-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-ink-subtle">Add donor</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label className="text-xs">Type</Label>
+                    <Select value={miniType} onValueChange={(v) => v && setMiniType(v)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["INDIVIDUAL", "CORPORATE", "TRUST", "HUF", "NRI"].map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {t}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Name</Label>
+                    <Input value={miniName} onChange={(e) => setMiniName(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">PAN</Label>
+                    <Input value={miniPan} onChange={(e) => setMiniPan(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Phone</Label>
+                    <Input value={miniPhone} onChange={(e) => setMiniPhone(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setMiniOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={createMini.isExecuting || miniName.trim().length === 0}
+                    onClick={() =>
+                      createMini.execute({
+                        donorType: miniType as never,
+                        name: miniName.trim(),
+                        pan: miniPan || null,
+                        phone: miniPhone || null,
+                        addressLine1: null,
+                        city: null,
+                        state: null,
+                        pincode: null,
+                      } as never)
+                    }
+                  >
+                    Save donor
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Amount */}
+          <div className="space-y-1">
+            <Label
+              htmlFor="amount"
+              className="text-xs uppercase tracking-[0.16em] text-ink-subtle"
+            >
+              Amount
+            </Label>
+            <div className="flex items-baseline gap-2">
+              <span className="font-display text-3xl text-ink-subtle">₹</span>
+              <Input
+                id="amount"
+                inputMode="decimal"
+                placeholder="0"
+                value={amountStr}
+                onChange={(e) => setAmountStr(e.target.value)}
+                className="font-display text-3xl h-14 max-w-[260px]"
+              />
+            </div>
+            {amountNum > 0 ? (
+              <p className="text-xs italic text-ink-muted">{inrInWords(amountStr)}</p>
+            ) : null}
+            <FieldError msg={fieldErrors.amount} />
+            {panWarning ? (
+              <p className="rounded-md border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-[color:var(--warning)]">
+                PAN required for 80G eligibility above ₹
+                {MANDATORY_PAN_THRESHOLD.toLocaleString("en-IN")}.
+              </p>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Everything else. Defaults (today · UPI · General · 80G · primary bank)
+          keep the collapsed path valid with zero extra input. */}
+      <details
+        open={moreOpen}
+        onToggle={(e) => setMoreOpen(e.currentTarget.open)}
+        className="group rounded-md border border-border bg-surface"
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <span className="text-sm font-medium">More options</span>
+          <span className="flex items-center gap-2 text-xs text-ink-subtle">
+            {collapsedSummary}
+            <IconChevronDown size={14} className="transition-transform group-open:rotate-180" />
+          </span>
+        </summary>
+
+        <div className="space-y-5 border-t border-border p-4">
+          {/* Anonymous */}
+          <div className="flex items-center gap-3">
             <Checkbox
               id="anon"
               checked={isAnonymous}
               onCheckedChange={(v) => setIsAnonymous(!!v)}
             />
-            <div className="flex-1">
-              <Label htmlFor="anon" className="font-medium">
-                Anonymous donation
-              </Label>
-              <p className="text-xs text-ink-muted">
-                Routes to the system Anonymous Donations bucket. PAN and 80G are skipped.
-              </p>
-            </div>
-            {isAnonymous ? <AnonymousMeter total={anonTotal} limit={anonLimit} pct={anonPct} /> : null}
-          </CardContent>
-        </Card>
+            <Label htmlFor="anon" className="text-sm">
+              Anonymous donation
+              <span className="ml-1 font-normal text-ink-subtle">
+                — routes to the Anonymous bucket, skips PAN and 80G
+              </span>
+            </Label>
+          </div>
 
-        {/* Donor */}
-        {!isAnonymous ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Donor</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {donor ? (
-                <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-canvas p-3">
-                  <div>
-                    <p className="font-display text-lg">{donor.name}</p>
-                    <p className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
-                      <Badge variant="outline" className="text-[10px]">
-                        {donor.donorType}
-                      </Badge>
-                      {donor.pan ? <span className="font-mono">{donor.pan}</span> : <span>no PAN</span>}
-                      {donor.is80GEligible ? <span>· 80G eligible</span> : null}
-                    </p>
-                    <p className="mt-1 text-xs text-ink-subtle">
-                      Lifetime {formatINRWithSymbol(donor.lifetime, { paise: true })}
-                      {donor.lastDonationDate
-                        ? ` · last donation ${formatIST(donor.lastDonationDate)}`
-                        : null}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Change donor"
-                    onClick={() => setDonor(null)}
-                  >
-                    <IconX size={14} />
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="relative">
-                    <IconSearch
-                      size={14}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle"
-                    />
-                    <Input
-                      placeholder="Search by name, PAN, or phone…"
-                      value={donorQuery}
-                      onChange={(e) => onDonorQuery(e.target.value)}
-                      onFocus={() => setDonorOpen(true)}
-                      className="pl-8"
-                    />
-                  </div>
-                  {donorOpen && (donorResults.length > 0 || donorQuery.length >= 2) ? (
-                    <div className="rounded-md border border-border bg-surface">
-                      {donorResults.length === 0 ? (
-                        <p className="px-3 py-4 text-sm text-ink-muted">
-                          No donors match &ldquo;{donorQuery}&rdquo;
-                        </p>
-                      ) : (
-                        <ul className="max-h-60 overflow-auto py-1">
-                          {donorResults.map((d) => (
-                            <li key={d.id}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setDonor(d);
-                                  setDonorOpen(false);
-                                  setDonorQuery("");
-                                }}
-                                className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
-                              >
-                                <IconUser size={14} className="mt-0.5 shrink-0 text-ink-subtle" />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium">{d.name}</p>
-                                  <p className="text-[11px] text-ink-subtle">
-                                    <Badge variant="outline" className="mr-1 text-[9px]">
-                                      {d.donorType}
-                                    </Badge>
-                                    {d.pan ? <span className="font-mono">{d.pan}</span> : "no PAN"}
-                                  </p>
-                                </div>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      <div className="border-t border-border">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMiniOpen(true);
-                            setDonorOpen(false);
-                            setMiniName(donorQuery);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-primary hover:bg-primary-soft/40"
-                        >
-                          <IconPlus size={14} />
-                          Add new donor
-                          {donorQuery ? <span className="text-ink-subtle">&ldquo;{donorQuery}&rdquo;</span> : null}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-
-              {miniOpen ? (
-                <div className="rounded-md border border-primary/30 bg-primary-soft/30 p-4 space-y-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-ink-subtle">
-                    Add donor
-                  </p>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <Label className="text-xs">Type</Label>
-                      <Select value={miniType} onValueChange={(v) => v && setMiniType(v)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {["INDIVIDUAL", "CORPORATE", "TRUST", "HUF", "NRI"].map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {t}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Name</Label>
-                      <Input value={miniName} onChange={(e) => setMiniName(e.target.value)} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">PAN</Label>
-                      <Input value={miniPan} onChange={(e) => setMiniPan(e.target.value)} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Phone</Label>
-                      <Input value={miniPhone} onChange={(e) => setMiniPhone(e.target.value)} />
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setMiniOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={createMini.isExecuting || miniName.trim().length === 0}
-                      onClick={() =>
-                        createMini.execute({
-                          donorType: miniType as never,
-                          name: miniName.trim(),
-                          pan: miniPan || null,
-                          phone: miniPhone || null,
-                          addressLine1: null,
-                          city: null,
-                          state: null,
-                          pincode: null,
-                        } as never)
-                      }
-                    >
-                      Save donor
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {panWarning ? (
-                <p className="rounded-md border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-[color:var(--warning)]">
-                  PAN required for 80G eligibility above ₹{MANDATORY_PAN_THRESHOLD.toLocaleString("en-IN")}.
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {/* Date */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Date</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2">
+          {/* Date */}
+          <div>
+            <Label className="text-xs">Date</Label>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               {[
                 { label: "Today", value: todayIso() },
                 { label: "Yesterday", value: yesterdayIso() },
@@ -512,47 +623,20 @@ export function RecordDonationForm({
                   {p.label}
                 </Button>
               ))}
-            </div>
-            <Input
-              type="date"
-              value={donationDate}
-              onChange={(e) => setDonationDate(e.target.value)}
-              className="max-w-[200px]"
-            />
-          </CardContent>
-        </Card>
-
-        {/* Amount */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Amount</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex items-baseline gap-2">
-              <span className="font-display text-3xl text-ink-subtle">₹</span>
               <Input
-                inputMode="decimal"
-                placeholder="0"
-                value={amountStr}
-                onChange={(e) => setAmountStr(e.target.value)}
-                className="font-display text-3xl h-14 max-w-[260px]"
+                type="date"
+                value={donationDate}
+                onChange={(e) => setDonationDate(e.target.value)}
+                className="max-w-[180px]"
               />
             </div>
-            {amountNum > 0 ? (
-              <p className="text-xs italic text-ink-muted">
-                {inrInWords(amountStr)}
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
+            <FieldError msg={fieldErrors.donationDate} />
+          </div>
 
-        {/* Mode */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Mode</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2">
+          {/* Mode */}
+          <div>
+            <Label className="text-xs">Mode</Label>
+            <div className="mt-1 flex flex-wrap gap-2">
               {COMMON_MODES.map((m) => (
                 <Button
                   key={m}
@@ -577,91 +661,93 @@ export function RecordDonationForm({
                 </SelectContent>
               </Select>
             </div>
+            <FieldError msg={fieldErrors.mode} />
+          </div>
 
-            {showRefField ? (
+          {showRefField ? (
+            <div>
+              <Label className="text-xs">Reference</Label>
+              <Input
+                placeholder={
+                  mode === "CHEQUE" || mode === "DD"
+                    ? "Cheque / DD number"
+                    : mode === "UPI"
+                      ? "UPI ref"
+                      : "UTR / reference"
+                }
+                value={paymentRef}
+                onChange={(e) => setPaymentRef(e.target.value)}
+                className="font-mono max-w-[280px]"
+              />
+              <FieldError msg={fieldErrors.paymentRef} />
+            </div>
+          ) : null}
+
+          {mode === "IN_KIND" ? (
+            <div className="grid gap-3 md:grid-cols-2">
               <div>
-                <Label className="text-xs">Reference</Label>
-                <Input
-                  placeholder={
-                    mode === "CHEQUE" || mode === "DD"
-                      ? "Cheque / DD number"
-                      : mode === "UPI"
-                        ? "UPI ref"
-                        : "UTR / reference"
-                  }
-                  value={paymentRef}
-                  onChange={(e) => setPaymentRef(e.target.value)}
-                  className="font-mono max-w-[280px]"
+                <Label className="text-xs">Goods description</Label>
+                <Textarea
+                  rows={2}
+                  value={inKindDescription}
+                  onChange={(e) => setInKindDescription(e.target.value)}
                 />
+                <FieldError msg={fieldErrors.inKindDescription} />
               </div>
-            ) : null}
-
-            {mode === "IN_KIND" ? (
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <Label className="text-xs">Goods description</Label>
-                  <Textarea
-                    rows={2}
-                    value={inKindDescription}
-                    onChange={(e) => setInKindDescription(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Valuation method</Label>
-                  <Select value={inKindValuation} onValueChange={(v) => v && setInKindValuation(v)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {IN_KIND_VALUATION_METHODS.map((v) => (
-                        <SelectItem key={v} value={v}>
-                          {v.replace(/_/g, " ")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            ) : null}
-
-            {showBankField ? (
               <div>
-                <Label className="text-xs">Bank account credited</Label>
-                <Select value={bankAccountId} onValueChange={(v) => v && setBankAccountId(v)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select bank account…">
-                      {(val) => {
-                        const b = visibleBanks.find((x) => x.id === val);
-                        if (!b) return "Select bank account…";
-                        return `${b.bankName} · a/c ending ${b.accountNumber.slice(-4)}`;
-                      }}
-                    </SelectValue>
+                <Label className="text-xs">Valuation method</Label>
+                <Select value={inKindValuation} onValueChange={(v) => v && setInKindValuation(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {visibleBanks.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.bankName} · a/c ending {b.accountNumber.slice(-4)}
+                    {IN_KIND_VALUATION_METHODS.map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {v.replace(/_/g, " ")}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {showFcraNote ? (
-                  <p className="mt-1 text-[11px] text-[color:var(--info)]">
-                    Filtered to FCRA accounts (foreign-source donor).
-                  </p>
-                ) : null}
+                <FieldError msg={fieldErrors.inKindValuationMethod} />
               </div>
-            ) : null}
-          </CardContent>
-        </Card>
+            </div>
+          ) : null}
 
-        {/* Purpose */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Purpose</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2">
+          {showBankField ? (
+            <div>
+              <Label className="text-xs">Bank account credited</Label>
+              <Select value={effectiveBankId} onValueChange={(v) => v && setBankAccountId(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select bank account…">
+                    {(val) => {
+                      const b = visibleBanks.find((x) => x.id === val);
+                      if (!b) return "Select bank account…";
+                      return `${b.bankName} · a/c ending ${b.accountNumber.slice(-4)}`;
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {visibleBanks.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      {b.bankName} · a/c ending {b.accountNumber.slice(-4)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError msg={fieldErrors.bankAccountId} />
+            </div>
+          ) : null}
+
+          {showFcraNote ? (
+            <p className="text-[11px] text-[color:var(--info)]">
+              Foreign-source donor — recorded as FCRA, bank list filtered to FCRA accounts.
+            </p>
+          ) : null}
+
+          {/* Purpose */}
+          <div>
+            <Label className="text-xs">Purpose</Label>
+            <div className="mt-1 flex flex-wrap gap-2">
               {(["GENERAL", "CORPUS", "PROJECT_SPECIFIC", "CSR"] as const).map((p) => (
                 <Button
                   key={p}
@@ -674,117 +760,85 @@ export function RecordDonationForm({
                 </Button>
               ))}
             </div>
-            {purpose === "PROJECT_SPECIFIC" || purpose === "CSR" ? (
-              <div>
-                <Label className="text-xs">Project</Label>
-                <Select value={projectId} onValueChange={(v) => v && setProjectId(v)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select project…">
-                      {(val) => {
-                        const p = projects.find((x) => x.id === val);
-                        if (!p) return "Select project…";
-                        return `${p.name} (${p.code})`;
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name} ({p.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {projects.length === 0 ? (
-                  <p className="mt-1 text-[11px] text-ink-subtle">
-                    No active projects yet. Create one under{" "}
-                    <a href="/projects/new" className="text-primary hover:underline">
-                      Projects
-                    </a>{" "}
-                    first.
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            {purpose === "CSR" ? (
-              <div>
-                <Label className="text-xs">CSR company CIN</Label>
-                <Input
-                  className="font-mono max-w-[280px]"
-                  value={csrCin}
-                  onChange={(e) => setCsrCin(e.target.value.toUpperCase())}
-                  placeholder="U85100KA2024NPL123456"
-                />
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+            <FieldError msg={fieldErrors.purpose} />
+          </div>
 
-        {/* 80G + remarks */}
-        {!isAnonymous ? (
-          <Card>
-            <CardContent className="grid gap-4 p-5 md:grid-cols-2">
+          {purpose === "PROJECT_SPECIFIC" || purpose === "CSR" ? (
+            <div>
+              <Label className="text-xs">Project</Label>
+              <Select value={projectId} onValueChange={(v) => v && setProjectId(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select project…">
+                    {(val) => {
+                      const p = projects.find((x) => x.id === val);
+                      if (!p) return "Select project…";
+                      return `${p.name} (${p.code})`;
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} ({p.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {projects.length === 0 ? (
+                <p className="mt-1 text-[11px] text-ink-subtle">
+                  No active projects yet. Create one under{" "}
+                  <Link href="/projects/new" className="text-primary hover:underline">
+                    Projects
+                  </Link>{" "}
+                  first.
+                </p>
+              ) : null}
+              <FieldError msg={fieldErrors.projectId} />
+            </div>
+          ) : null}
+
+          {purpose === "CSR" ? (
+            <div>
+              <Label className="text-xs">CSR company CIN</Label>
+              <Input
+                className="font-mono max-w-[280px]"
+                value={csrCin}
+                onChange={(e) => setCsrCin(e.target.value.toUpperCase())}
+                placeholder="U85100KA2024NPL123456"
+              />
+              <FieldError msg={fieldErrors.csrCompanyCin} />
+            </div>
+          ) : null}
+
+          {/* 80G + remarks */}
+          <div className="grid gap-4 md:grid-cols-2">
+            {!isAnonymous ? (
               <div className="flex items-center gap-2">
                 <Checkbox id="is80g" checked={is80G} onCheckedChange={(v) => setIs80G(!!v)} />
                 <Label htmlFor="is80g" className="text-sm flex items-center gap-1">
                   <IconShieldCheck size={14} /> 80G eligible
                 </Label>
+                <FieldError msg={fieldErrors.is80GEligible} />
               </div>
-              <div>
-                <Label className="text-xs">Remarks</Label>
-                <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-      </div>
-
-      {/* Right column — preview + sticky submit */}
-      <aside className="lg:sticky lg:top-4 self-start space-y-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Preview</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
+            ) : null}
             <div>
-              <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">Donor</p>
-              <p className="font-display text-lg">
-                {effectiveDonor?.name ?? <span className="italic text-ink-subtle">—</span>}
-              </p>
-              {effectiveDonor?.pan ? (
-                <p className="font-mono text-xs text-ink-muted">{effectiveDonor.pan}</p>
-              ) : null}
+              <Label className="text-xs">Remarks</Label>
+              <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+              <FieldError msg={fieldErrors.remarks} />
             </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">Amount</p>
-              <p className="font-display text-3xl">
-                {amountNum > 0 ? formatINRWithSymbol(amountStr, { paise: true }) : "—"}
-              </p>
-              {amountNum > 0 ? (
-                <p className="text-xs italic text-ink-muted">{inrInWords(amountStr)}</p>
-              ) : null}
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <span className="text-ink-subtle">Date</span>
-              <span className="text-right font-mono">{formatIST(donationDate)}</span>
-              <span className="text-ink-subtle">Mode</span>
-              <span className="text-right">{MODE_LABELS[mode]}</span>
-              <span className="text-ink-subtle">Purpose</span>
-              <span className="text-right">{purpose}</span>
-              <span className="text-ink-subtle">80G</span>
-              <span className="text-right">{isAnonymous ? "—" : is80G ? "Yes" : "No"}</span>
-            </div>
-            <p className="text-[10px] text-ink-subtle">Receipt assigned on save.</p>
-          </CardContent>
-        </Card>
-
-        <div className="rounded-md border border-border bg-surface p-3 flex items-center justify-between gap-2">
-          <p className="text-[11px] text-ink-subtle">FY {fy} · receipt assigned on save</p>
-          <Button type="submit" disabled={submit.isExecuting}>
-            {submit.isExecuting ? "Saving…" : "Save & generate receipt"}
-          </Button>
+          </div>
         </div>
-      </aside>
+      </details>
+
+      <div className="sticky bottom-0 flex items-center justify-between gap-2 rounded-md border border-border bg-surface p-3">
+        <p className="text-[11px] text-ink-subtle">
+          FY {fy} · {amountNum > 0 ? formatINRWithSymbol(amountStr, { paise: true }) : "—"} · receipt
+          assigned on save
+        </p>
+        <Button type="submit" disabled={submit.isExecuting}>
+          {submit.isExecuting ? "Saving…" : "Save & generate receipt"}
+        </Button>
+      </div>
     </form>
   );
 }

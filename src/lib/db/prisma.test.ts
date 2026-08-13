@@ -140,3 +140,37 @@ describe("multi-tenant Prisma extension", () => {
     expect(after).toBe(before);
   });
 });
+
+describe("scoped-model registry", () => {
+  // A model with organisationId that nobody added to SCOPED_MODELS falls
+  // straight through the extension unscoped — the tenancy hole is silent,
+  // so it has to be caught here rather than in review.
+  it("covers every model carrying organisationId", async () => {
+    const { Prisma } = await import("@prisma/client");
+    const { SCOPED_MODELS, PARENT_SCOPED_MODELS, SYSTEM_MODELS } = await import(
+      "./scoped-models"
+    );
+
+    const unregistered = Prisma.dmmf.datamodel.models
+      .filter((m) => m.fields.some((f) => f.name === "organisationId"))
+      .map((m) => m.name)
+      .filter(
+        (name) =>
+          !SCOPED_MODELS.has(name) &&
+          !PARENT_SCOPED_MODELS.has(name) &&
+          !SYSTEM_MODELS.has(name),
+      );
+
+    expect(unregistered).toEqual([]);
+  });
+
+  it("lists no model that has been dropped from the schema", async () => {
+    const { Prisma } = await import("@prisma/client");
+    const { SCOPED_MODELS, PARENT_SCOPED_MODELS } = await import("./scoped-models");
+
+    const known = new Set(Prisma.dmmf.datamodel.models.map((m) => m.name));
+    const stale = [...SCOPED_MODELS, ...PARENT_SCOPED_MODELS].filter((n) => !known.has(n));
+
+    expect(stale).toEqual([]);
+  });
+});

@@ -41,6 +41,7 @@ the thing exists, extend it. If it doesn't, add it after you ship.
 | `prisma/seed.ts`                                             | CLI script, no HTTP session                 |
 | `src/app/(app)/settings/organisation/page.tsx`               | Fetches the Organisation row by `scope.organisationId` (Organisation is a SYSTEM_MODEL) |
 | `src/lib/db/prisma.test.ts`                                  | Test setup / teardown                        |
+| `src/lib/payments/process-payment.ts`                        | Razorpay webhook has no session; the org comes from the `PaymentIntent` row, never the payload |
 
 If you find yourself reaching for `prismaUnsafe` outside these, talk to the
 plan first. Most additions belong to one of these categories: auth, seed,

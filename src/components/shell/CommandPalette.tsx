@@ -32,7 +32,6 @@ const ITEMS: Item[] = [
   { label: "Record a donation", href: "/donations/new", group: "Actions", icon: IconReceiptRupee },
   { label: "All projects", href: "/projects", group: "Navigate", icon: IconFolders },
   { label: "Organisation profile", href: "/settings/organisation", group: "Settings", icon: IconSettings },
-  { label: "Design system", href: "/design-system", group: "Internal", icon: IconSearch },
 ];
 
 export function CommandPalette() {

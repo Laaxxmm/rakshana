@@ -6,9 +6,9 @@ import { prisma } from "@/lib/db/prisma";
 import { aggregateFor10BD } from "@/lib/compliance/10bd-aggregator";
 import { Form10BDWizard } from "./Form10BDWizard";
 
-export const metadata: Metadata = { title: "Form 10BD wizard — Rakshana" };
+export const metadata: Metadata = { title: "Form 10BD filing — Rakshana" };
 
-export default async function Form10BDWizardPage({
+export default async function Form10BDFilingPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -27,7 +27,7 @@ export default async function Form10BDWizardPage({
 
   // Aggregate is recomputed on every page load — the underlying donor/donation
   // data is what changes, not a snapshot. The filing row stores totals for
-  // the index page only; the wizard always reads live.
+  // the index page only; this page always reads live.
   const agg = await aggregateFor10BD(filing.organisationId, filing.financialYear);
 
   // Strip Decimal for client transfer
@@ -60,10 +60,7 @@ export default async function Form10BDWizardPage({
           className="mt-2 font-display text-3xl text-ink"
           style={{ fontVariationSettings: "'opsz' 28" }}
         >
-          Form 10BD · FY {filing.financialYear}
-          {filing.isRevision && (
-            <span className="ml-3 text-base text-warning">(Revision)</span>
-          )}
+          Form 10BD
         </h1>
       </div>
 

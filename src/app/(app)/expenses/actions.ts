@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Decimal } from "decimal.js";
+import type { Expense, PaymentMode, Prisma } from "@prisma/client";
 import { safeAction } from "@/lib/actions/safe-action";
 import { prisma, prismaUnsafe } from "@/lib/db/prisma";
 import {
@@ -16,7 +17,11 @@ import { storage, storageKey } from "@/lib/storage";
 import { validateUpload, type AllowedMime } from "@/lib/storage/validate";
 import { compressBill } from "@/lib/images/compress";
 import { allocateVoucherNumber } from "@/lib/services/voucher-number";
-import { canAutoApprove, requiredApprovalRole } from "@/lib/services/approval-policy";
+import {
+  canAutoApprove,
+  requiredApprovalRole,
+  roleAtLeast,
+} from "@/lib/services/approval-policy";
 import { computeTds, computeGst } from "@/lib/services/tax-calc";
 import { generateVoucherPdf } from "@/lib/pdf/voucher";
 import { getFinancialYear } from "@/lib/format/date";
@@ -31,6 +36,7 @@ export const createExpenseDraft = safeAction
   .metadata({ requires: "expense.create" })
   .inputSchema(expenseDraftSchema)
   .action(async ({ parsedInput, ctx }) => {
+    await assertFcraPaymentRoute(parsedInput);
     const { tdsResult, gstResult } = await derivedAmounts(parsedInput);
 
     const created = await prisma.expense.create({
@@ -76,35 +82,10 @@ export const submitExpense = safeAction
   .metadata({ requires: "expense.submit" })
   .inputSchema(expenseDraftSchema.extend({ expenseId: z.string().optional() }))
   .action(async ({ parsedInput, ctx }) => {
+    await assertFcraPaymentRoute(parsedInput);
     const { tdsResult, gstResult } = await derivedAmounts(parsedInput);
     const fy = getFinancialYear(parsedInput.expenseDate);
     const kind = parsedInput.isPettyCash ? "PETTY_CASH" : "GENERAL";
-
-    // FCRA enforcement (Phase 4): if the tagged project is FCRA-flagged,
-    // the expense must be paid from an FCRA-only bank account. Cash and
-    // petty cash are not permitted for FCRA project spends.
-    if (parsedInput.projectId) {
-      const project = await prisma.project.findUnique({
-        where: { id: parsedInput.projectId },
-        select: { isFcra: true },
-      });
-      if (project?.isFcra) {
-        if (parsedInput.isPettyCash) {
-          throw new Error("FCRA-tagged projects cannot be paid via petty cash.");
-        }
-        if (parsedInput.bankAccountId) {
-          const bank = await prisma.bankAccount.findUnique({
-            where: { id: parsedInput.bankAccountId },
-            select: { purpose: true },
-          });
-          if (bank?.purpose !== "FCRA_ONLY") {
-            throw new Error(
-              "FCRA-tagged projects must be paid from an FCRA-only bank account.",
-            );
-          }
-        }
-      }
-    }
 
     // Petty-cash auto-approval threshold check
     const org = await prismaUnsafe.organisation.findUniqueOrThrow({
@@ -379,6 +360,26 @@ export const approveExpense = safeAction
       where: { id: parsedInput.expenseId },
     });
     assertTransition("approve", expense.status);
+
+    // The metadata permission is only a coarse gate — every role that may
+    // approve at all passes it. The org's ApprovalPolicy bands (PRD §7.3)
+    // decide who may clear THIS amount, read off the stored gross so a
+    // tampered client payload can't buy a cheaper tier.
+    const required = await requiredApprovalRole(
+      ctx.scope.organisationId,
+      expense.grossAmount.toString(),
+    );
+    if (!required) {
+      throw new Error(
+        `No approval policy covers ₹${expense.grossAmount.toString()}. Configure the expense approval tiers first.`,
+      );
+    }
+    if (!roleAtLeast(ctx.scope.role, required)) {
+      throw new Error(
+        `Vouchers of ₹${expense.grossAmount.toString()} need ${required} approval — your role (${ctx.scope.role}) is below that tier.`,
+      );
+    }
+
     await prismaUnsafe.$transaction(async (tx) => {
       await tx.expense.update({ where: { id: expense.id }, data: { status: "APPROVED" } });
       await tx.expenseApproval.create({
@@ -434,6 +435,7 @@ export const rejectExpense = safeAction
           link: `/expenses?open=${expense.id}`,
         },
       });
+      await reverseExpensePostings(tx, expense);
     });
     revalidatePath("/expenses");
     revalidatePath("/approvals");
@@ -448,12 +450,18 @@ export const markExpensePaid = safeAction
       where: { id: parsedInput.expenseId },
     });
     assertTransition("markPaid", expense.status);
+    // This is the write that settles the money, and `modeOverride` can re-route
+    // it away from the mode the voucher was approved on — a Server Action is a
+    // public endpoint, so the override arrives untrusted. The FCRA route is
+    // therefore re-asserted against the mode about to be persisted.
+    const mode = parsedInput.modeOverride ?? expense.mode;
+    await assertFcraPaymentRoute({ ...expense, mode });
     await prisma.expense.update({
       where: { id: expense.id },
       data: {
         status: "PAID",
         paidAt: parsedInput.paidAt,
-        mode: parsedInput.modeOverride ?? expense.mode,
+        mode,
         paymentRef: parsedInput.paymentRef ?? expense.paymentRef,
       },
     });
@@ -475,24 +483,7 @@ export const cancelExpense = safeAction
         where: { id: expense.id },
         data: { status: "CANCELLED" },
       });
-      // Refund petty cash float if applicable
-      if (expense.isPettyCash && expense.pettyCashFloatId) {
-        const float = await tx.pettyCashFloat.findUniqueOrThrow({
-          where: { id: expense.pettyCashFloatId },
-        });
-        const next = new Decimal(float.currentBalance.toString()).plus(
-          expense.grossAmount.toString(),
-        );
-        await tx.pettyCashFloat.update({
-          where: { id: float.id },
-          data: { currentBalance: next.toString() },
-        });
-      }
-      // Mark the TDS entry cancelled so Phase 5 returns can exclude it
-      await tx.tdsEntry.updateMany({
-        where: { expenseId: expense.id },
-        data: { status: "CANCELLED" },
-      });
+      await reverseExpensePostings(tx, expense);
     });
     await generateVoucherPdf(expense.id);
     revalidatePath("/expenses");
@@ -518,6 +509,97 @@ export const reopenExpense = safeAction
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * FCRA section 17: a foreign-contribution project may only be spent from the
+ * organisation's designated FCRA bank account, so every cash route — petty
+ * cash, a CASH/OTHER payment mode, or simply no bank account named — is
+ * barred, not just the wrong bank account. Checked on every write that can set
+ * the payment route — draft, submit and the mark-paid override — so a voucher
+ * can neither be built into a state submit will refuse nor be diverted to cash
+ * after approval.
+ */
+async function assertFcraPaymentRoute(p: {
+  projectId: string | null;
+  mode: PaymentMode;
+  isPettyCash: boolean;
+  bankAccountId: string | null;
+}) {
+  if (!p.projectId) return;
+  const project = await prisma.project.findUnique({
+    where: { id: p.projectId },
+    select: { isFcra: true },
+  });
+  if (!project?.isFcra) return;
+
+  if (p.isPettyCash) {
+    throw new Error("FCRA-tagged projects cannot be paid via petty cash.");
+  }
+  if (p.mode === "CASH" || p.mode === "OTHER") {
+    throw new Error("FCRA-tagged projects cannot be paid in cash.");
+  }
+  if (!p.bankAccountId) {
+    throw new Error("FCRA-tagged projects must be paid from an FCRA-only bank account.");
+  }
+  const bank = await prisma.bankAccount.findUnique({
+    where: { id: p.bankAccountId },
+    select: { purpose: true },
+  });
+  if (bank?.purpose !== "FCRA_ONLY") {
+    throw new Error("FCRA-tagged projects must be paid from an FCRA-only bank account.");
+  }
+}
+
+/**
+ * Unwinds what `submit` posted, for the two terminal exits (reject, cancel).
+ * `expense` is the row as it was read before the status write, so
+ * `expense.status` is the state being left.
+ *
+ * The TdsEntry sweep is unconditional: a voucher that ends rejected or void
+ * must not be filed in that deductee's quarterly 26Q. Only `submit` writes an
+ * entry, so a voucher that never reached it has nothing to sweep.
+ *
+ * The petty cash float is a different matter. `submit` debits it when the
+ * voucher is raised and `markPaid` never touches it again, so `currentBalance`
+ * runs one step ahead of the cash box and only two of the four states cancel
+ * is legal from (expense-workflow.ts `TRANSITIONS.cancel`) owe a credit back:
+ *
+ *   DRAFT               never reached submit, so nothing was debited.
+ *   PENDING_APPROVAL,   debited, but the custodian has not handed the cash
+ *   APPROVED            over — the box still holds it, so the register must
+ *                       show it again. `reject` only ever arrives here.
+ *   PAID                debited, and the cash has left the box. The register
+ *                       already matches what is physically there. Crediting it
+ *                       would claim rupees nobody can hand over, and the next
+ *                       voucher would clear submit's balance check against
+ *                       them. Cash coming back later — a refund, or a payment
+ *                       recorded in error — belongs in the float as a fresh
+ *                       credit dated the day it lands, not as an unwind of a
+ *                       debit the box has already honoured.
+ */
+async function reverseExpensePostings(
+  tx: Prisma.TransactionClient,
+  expense: Pick<Expense, "id" | "status" | "isPettyCash" | "pettyCashFloatId" | "grossAmount">,
+) {
+  const debitedButUnspent =
+    expense.status === "PENDING_APPROVAL" || expense.status === "APPROVED";
+  if (debitedButUnspent && expense.isPettyCash && expense.pettyCashFloatId) {
+    const float = await tx.pettyCashFloat.findUniqueOrThrow({
+      where: { id: expense.pettyCashFloatId },
+    });
+    const next = new Decimal(float.currentBalance.toString()).plus(
+      expense.grossAmount.toString(),
+    );
+    await tx.pettyCashFloat.update({
+      where: { id: float.id },
+      data: { currentBalance: next.toString() },
+    });
+  }
+  await tx.tdsEntry.updateMany({
+    where: { expenseId: expense.id },
+    data: { status: "CANCELLED" },
+  });
+}
 
 let pendingCounter = 0;
 function pendingVoucherPlaceholder(): string {

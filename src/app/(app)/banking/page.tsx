@@ -42,7 +42,7 @@ export default async function BankingPage() {
 
   // Compute current balance for each account: opening + lifetime receipts − lifetime payments
   const accountIds = accounts.map((a) => a.id);
-  const [donationAgg, expenseAgg, recentDonations, recentExpenses] =
+  const [donationAgg, expenseAgg, topUpAgg, recentDonations, recentExpenses, recentTopUps] =
     await Promise.all([
       accountIds.length
         ? prisma.donation.groupBy({
@@ -67,6 +67,21 @@ export default async function BankingPage() {
             },
           })
         : Promise.resolve([] as never[]),
+      // A petty-cash top-up moves cash from the bank into the cash box. It
+      // carries no Expense row — topUpPettyCash writes the PettyCashTopUp row,
+      // credits the float and logs the movement in AuditLog — so the bank leg
+      // of the movement is recorded only here. It is folded into each account's payment count
+      // and total below, and listed alongside the paid expenses under "Recent
+      // payments". PettyCashTopUp has no organisationId of its own — tenancy
+      // comes from accountIds, which the scoped query above produced.
+      accountIds.length
+        ? prisma.pettyCashTopUp.groupBy({
+            by: ["bankAccountId"],
+            _sum: { amount: true },
+            _count: { _all: true },
+            where: { bankAccountId: { in: accountIds } },
+          })
+        : Promise.resolve([] as never[]),
       prisma.donation.findMany({
         where: {
           bankAccountId: { in: accountIds },
@@ -81,6 +96,12 @@ export default async function BankingPage() {
         orderBy: { paidAt: "desc" },
         take: 8,
         include: { vendor: { select: { name: true } } },
+      }),
+      prisma.pettyCashTopUp.findMany({
+        where: { bankAccountId: { in: accountIds } },
+        orderBy: { topUpDate: "desc" },
+        take: 8,
+        include: { float: { select: { name: true } } },
       }),
     ]);
 
@@ -102,6 +123,37 @@ export default async function BankingPage() {
       },
     ]),
   );
+  for (const t of topUpAgg) {
+    const prev = paymentsByAccount.get(t.bankAccountId) ?? {
+      sum: new Decimal(0),
+      count: 0,
+    };
+    paymentsByAccount.set(t.bankAccountId, {
+      sum: prev.sum.plus(t._sum.amount?.toString() ?? "0"),
+      count: prev.count + t._count._all,
+    });
+  }
+
+  // The eight most recent movements out of the accounts. Paid expenses and
+  // top-ups together are the same population each card's payment count sums,
+  // so both belong in this list. A top-up has no payee, so it is named by the
+  // float it filled. Rows with no paidAt sort last.
+  const recentPayments = [
+    ...recentExpenses.map((e) => ({
+      id: e.id,
+      date: e.paidAt,
+      to: e.vendor?.name ?? e.cashPayeeName ?? "—",
+      amount: e.grossAmount.toString(),
+    })),
+    ...recentTopUps.map((t) => ({
+      id: t.id,
+      date: t.topUpDate,
+      to: `Petty cash · ${t.float.name}`,
+      amount: t.amount.toString(),
+    })),
+  ]
+    .sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0))
+    .slice(0, 8);
 
   // Totals
   const totalOpening = accounts.reduce(
@@ -342,7 +394,7 @@ export default async function BankingPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentExpenses.length === 0 && (
+                    {recentPayments.length === 0 && (
                       <TableRow>
                         <TableCell
                           colSpan={3}
@@ -352,18 +404,14 @@ export default async function BankingPage() {
                         </TableCell>
                       </TableRow>
                     )}
-                    {recentExpenses.map((e) => (
-                      <TableRow key={e.id}>
+                    {recentPayments.map((p) => (
+                      <TableRow key={p.id}>
                         <TableCell className="text-xs">
-                          {e.paidAt
-                            ? formatIST(e.paidAt, "dd MMM")
-                            : "—"}
+                          {p.date ? formatIST(p.date, "dd MMM") : "—"}
                         </TableCell>
-                        <TableCell className="text-sm">
-                          {e.vendor?.name ?? e.cashPayeeName ?? "—"}
-                        </TableCell>
+                        <TableCell className="text-sm">{p.to}</TableCell>
                         <TableCell className="text-right font-mono tabular-nums">
-                          {formatINRWithSymbol(e.grossAmount.toString())}
+                          {formatINRWithSymbol(p.amount)}
                         </TableCell>
                       </TableRow>
                     ))}

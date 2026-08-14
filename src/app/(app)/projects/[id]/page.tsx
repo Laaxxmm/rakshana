@@ -27,7 +27,10 @@ export default async function ProjectProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await prismaUnsafe.project.findUnique({
+  // Scoped client: `id` comes off the URL, so this read is what proves the
+  // project belongs to the caller's organisation. A foreign cuid returns null
+  // and 404s instead of rendering another trust's budget and beneficiaries.
+  const project = await prisma.project.findUnique({
     where: { id },
     include: {
       manager: { select: { id: true, name: true } },

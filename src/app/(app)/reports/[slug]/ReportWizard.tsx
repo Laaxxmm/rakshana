@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatIST, getCurrentFY } from "@/lib/format/date";
 import { generateReport } from "../actions";
 import type { ReportSlug } from "@/lib/reports/registry";
 
@@ -35,18 +36,27 @@ export function ReportWizard({
   slug: ReportSlug;
   hasPdf: boolean;
 }) {
-  // Defaults — current FY for the FY-scoped reports
-  const now = new Date();
-  const fyStartYear = now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
-  const defaultFy = `${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, "0")}`;
-  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // Defaults — current FY for the FY-scoped reports. Both helpers convert an
+  // instant into Asia/Kolkata, so the FY and month are the ones the reports
+  // themselves work in and not the ones the viewer's machine happens to be in:
+  // a browser in New York and the server rendering the same page each convert
+  // their own clock into IST and land on the same string.
+  const defaultFy = getCurrentFY();
+  const fyStartYear = Number(defaultFy.slice(0, 4));
+  const defaultMonth = formatIST(new Date(), "yyyy-MM");
 
   const [fy, setFy] = useState(defaultFy);
   const [quarter, setQuarter] = useState<"Q1" | "Q2" | "Q3" | "Q4">("Q1");
   const [scope, setScope] = useState<"MONTH" | "FY">("FY");
-  const [period, setPeriod] = useState(defaultFy);
+  // Only the MONTH scope of gst-summary submits `period`; its FY scope submits
+  // `fy`, like every other FY-scoped report.
+  const [period, setPeriod] = useState(defaultMonth);
+  // `from`/`to` are inclusive IST days — `to` is the last day inside the
+  // report, not the day after it. The reports reading them (audit-trail,
+  // beneficiary-impact) query up to the IST midnight that closes `to`, so
+  // the current FY defaults to 1 April – 31 March.
   const [from, setFrom] = useState(`${fyStartYear}-04-01`);
-  const [to, setTo] = useState(`${fyStartYear + 1}-04-01`);
+  const [to, setTo] = useState(`${fyStartYear + 1}-03-31`);
   const [otherIncome, setOtherIncome] = useState("0");
   const [interestIncome, setInterestIncome] = useState("0");
   const [loansRepaid, setLoansRepaid] = useState("0");
@@ -208,7 +218,7 @@ function renderInputs(s: InputState) {
         />
       </div>
       <div>
-        <Label htmlFor="to">To</Label>
+        <Label htmlFor="to">To (inclusive)</Label>
         <Input
           id="to"
           type="date"
@@ -269,10 +279,21 @@ function renderInputs(s: InputState) {
             <Label htmlFor="period">
               {s.scope === "MONTH" ? "Period (YYYY-MM)" : "FY (YYYY-YY)"}
             </Label>
+            {/*
+              One box, two states: `buildParams` submits `period` under MONTH
+              scope and `fy` under FY, so the box reads and writes whichever of
+              the two this scope sends. Binding it to one alone leaves the
+              other scope's typing unread, and the report runs on a default the
+              screen no longer shows.
+            */}
             <Input
               id="period"
-              value={s.period}
-              onChange={(e) => s.setPeriod(e.target.value)}
+              value={s.scope === "MONTH" ? s.period : s.fy}
+              onChange={(e) =>
+                s.scope === "MONTH"
+                  ? s.setPeriod(e.target.value)
+                  : s.setFy(e.target.value)
+              }
               placeholder={s.scope === "MONTH" ? "2024-09" : "2024-25"}
               className="font-mono"
             />

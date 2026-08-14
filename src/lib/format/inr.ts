@@ -89,16 +89,22 @@ function threeDigits(n: number): string {
 /**
  * "Rupees One Lakh Twenty Three Thousand Four Hundred Fifty Six only"
  * Indian system: thousand → lakh → crore.
+ *
+ * Paise are spelled out, never rounded away: on an 80G receipt the amount in
+ * words is the controlling figure, so it has to agree to the paisa with the
+ * numeral printed beside it.
  */
 export function inrInWords(value: Numericish, opts: { withRupees?: boolean } = {}): string {
   const { withRupees = true } = opts;
-  const d = toDecimal(value).round();
+  const d = toDecimal(value).toDecimalPlaces(2);
   if (d.isZero()) {
     return withRupees ? "Rupees Zero only" : "Zero";
   }
 
   const negative = d.isNegative();
-  let n = Number(d.abs().toFixed(0));
+  const abs = d.abs();
+  const paise = abs.minus(abs.floor()).times(100).toNumber();
+  let n = Number(abs.floor().toFixed(0));
 
   const crore = Math.floor(n / 10_000_000);
   n %= 10_000_000;
@@ -114,9 +120,12 @@ export function inrInWords(value: Numericish, opts: { withRupees?: boolean } = {
   if (thousand) parts.push(`${twoDigits(thousand)} Thousand`);
   if (remainder) parts.push(threeDigits(remainder));
 
-  const body = parts.join(" ").trim();
+  // Sub-rupee amounts have no rupee body of their own — "Zero" keeps the
+  // sentence readable ("Rupees Zero and Fifty Paise only").
+  const body = parts.join(" ").trim() || "Zero";
   const head = withRupees ? "Rupees " : "";
   const sign = negative ? "Minus " : "";
   const tail = withRupees ? " only" : "";
-  return `${sign}${head}${body}${tail}`;
+  const paiseWords = paise ? ` and ${twoDigits(paise)} Paise` : "";
+  return `${sign}${head}${body}${paiseWords}${tail}`;
 }

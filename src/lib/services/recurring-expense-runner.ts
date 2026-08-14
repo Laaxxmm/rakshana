@@ -1,5 +1,4 @@
 import "server-only";
-import { Decimal } from "decimal.js";
 import { startOfDay, addMonths } from "date-fns";
 import type { RecurringFrequency } from "@prisma/client";
 import { prisma, prismaUnsafe } from "@/lib/db/prisma";
@@ -17,6 +16,7 @@ export type RunResult = {
   consideredTemplates: number;
   draftsCreated: number;
   skippedAlreadyDone: number;
+  skippedFcraProject: number;
 };
 
 const STEP: Record<RecurringFrequency, (d: Date) => Date> = {
@@ -32,13 +32,42 @@ export async function runRecurringExpenseGeneration(): Promise<RunResult> {
     where: { isActive: true, nextDueDate: { lte: today } },
   });
 
+  const fcraProjectIds = new Set(
+    (
+      await prisma.project.findMany({
+        where: {
+          isFcra: true,
+          id: {
+            in: templates
+              .map((t) => t.projectId)
+              .filter((id): id is string => id !== null),
+          },
+        },
+        select: { id: true },
+      })
+    ).map((p) => p.id),
+  );
+
   let draftsCreated = 0;
   let skippedAlreadyDone = 0;
+  let skippedFcraProject = 0;
 
   for (const t of templates) {
     // Idempotency: if we've already generated for this nextDueDate, skip.
     if (t.lastGeneratedFor && t.lastGeneratedFor.getTime() >= t.nextDueDate.getTime()) {
       skippedAlreadyDone += 1;
+      continue;
+    }
+
+    // A template carries no payment fields, so every draft below goes out as
+    // `mode: "OTHER"` with no bank account — two of the routes
+    // `assertFcraPaymentRoute` (expenses/actions.ts) refuses for a project
+    // tagged FCRA. That helper is module-private, so the condition is restated
+    // here rather than imported. Skipping without advancing `nextDueDate`
+    // leaves the template due, so it resurfaces on every run until the voucher
+    // is raised by hand against the FCRA bank account.
+    if (t.projectId && fcraProjectIds.has(t.projectId)) {
+      skippedFcraProject += 1;
       continue;
     }
 
@@ -79,7 +108,6 @@ export async function runRecurringExpenseGeneration(): Promise<RunResult> {
     consideredTemplates: templates.length,
     draftsCreated,
     skippedAlreadyDone,
+    skippedFcraProject,
   };
 }
-
-void Decimal; // typing convenience for future expansion (tax-aware drafts)

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import {
   IconBuilding,
   IconFileText,
@@ -83,6 +84,12 @@ export default async function OrganisationProfilePage() {
           {organisation.charitablePurpose ?? "Charitable trust"} ·{" "}
           {organisation.subCategory ?? "—"}
         </p>
+        <Link
+          href="/settings/account"
+          className="mt-2 inline-block text-sm text-ink-muted underline underline-offset-4 hover:text-ink"
+        >
+          Your account · change password
+        </Link>
       </header>
 
       <Tabs defaultValue="identity">

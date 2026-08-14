@@ -32,7 +32,7 @@ export default async function TdsIndex() {
   void organisationId;
   const fy = getCurrentFY();
 
-  const [entries, returns, challans, ldcs] = await Promise.all([
+  const [entries, returns, settlingChallans, ldcs] = await Promise.all([
     prisma.tdsEntry.findMany({
       where: { financialYear: fy, status: "ACTIVE" },
     }),
@@ -40,7 +40,22 @@ export default async function TdsIndex() {
       where: { financialYear: fy },
       orderBy: { quarter: "asc" },
     }),
-    prisma.tdsChallan.findMany({ orderBy: { challanDate: "desc" }, take: 8 }),
+    // Remittance is credited to the FY of the entries a challan discharges, not
+    // to the FY the challan is dated in. TDS deducted in March is payable by
+    // 30 April under Rule 30(2), so the challan that settles Q4 always bears a
+    // date in the following FY; keying on challanDate would report March's TDS
+    // as unremitted from 1 April every year, and an under-remitted balance is
+    // what carries interest and penalty under s.201.
+    prisma.tdsChallan.findMany({
+      where: { entries: { some: { financialYear: fy, status: "ACTIVE" } } },
+      select: {
+        amount: true,
+        entries: {
+          where: { status: "ACTIVE" },
+          select: { financialYear: true, tdsAmount: true },
+        },
+      },
+    }),
     prisma.ldcCertificate.findMany({
       where: { validTo: { gte: new Date() } },
       orderBy: { validTo: "asc" },
@@ -84,10 +99,32 @@ export default async function TdsIndex() {
     (acc, e) => acc.plus(e.tdsAmount.toString()),
     new Decimal(0),
   );
-  const totalChallanFy = challans.reduce(
-    (acc, c) => acc.plus(c.amount.toString()),
-    new Decimal(0),
-  );
+
+  // One challan may discharge entries from two financial years — a March
+  // deduction paid on 30 April alongside April's own. Its amount is split over
+  // those years in proportion to the TDS it settles, and capped at that TDS so
+  // an over-payment parked on the challan is not credited against this year.
+  // Each cap holds per challan and every entry belongs to at most one challan,
+  // so the remitted total can never exceed the TDS deducted and "Unremitted"
+  // can never print a negative.
+  const remittedFy = settlingChallans.reduce((acc, c) => {
+    const settled = c.entries.reduce(
+      (s, e) => s.plus(e.tdsAmount.toString()),
+      new Decimal(0),
+    );
+    if (settled.isZero()) return acc;
+    const settledForFy = c.entries
+      .filter((e) => e.financialYear === fy)
+      .reduce((s, e) => s.plus(e.tdsAmount.toString()), new Decimal(0));
+    return acc.plus(
+      Decimal.min(new Decimal(c.amount.toString()), settled)
+        .times(settledForFy)
+        .div(settled)
+        .toDecimalPlaces(2),
+    );
+  }, new Decimal(0));
+
+  const unremittedFy = totalTdsFy.minus(remittedFy);
 
   return (
     <div className="space-y-5">
@@ -135,17 +172,17 @@ export default async function TdsIndex() {
               <p className="font-medium tabular-nums">{formatINRWithSymbol(totalTdsFy.toString())}</p>
             </div>
             <div>
-              <p className="text-xs text-ink-subtle">Challan total (recent)</p>
-              <p className="font-medium tabular-nums">{formatINRWithSymbol(totalChallanFy.toString())}</p>
+              <p className="text-xs text-ink-subtle">Challans applied (FY)</p>
+              <p className="font-medium tabular-nums">{formatINRWithSymbol(remittedFy.toString())}</p>
             </div>
             <div>
-              <p className="text-xs text-ink-subtle">Difference</p>
+              <p className="text-xs text-ink-subtle">Unremitted (FY)</p>
               <p
                 className={`font-medium tabular-nums ${
-                  totalTdsFy.eq(totalChallanFy) ? "text-primary" : "text-warning"
+                  unremittedFy.isZero() ? "text-primary" : "text-warning"
                 }`}
               >
-                {formatINRWithSymbol(totalTdsFy.minus(totalChallanFy).toString())}
+                {formatINRWithSymbol(unremittedFy.toString())}
               </p>
             </div>
           </div>

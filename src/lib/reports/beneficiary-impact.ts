@@ -1,7 +1,9 @@
 import "server-only";
 import { Decimal } from "decimal.js";
 import { prismaUnsafe } from "@/lib/db/prisma";
+import { formatIST } from "@/lib/format/date";
 import type { ReportGenerator, ComputedReport, ValidationResult } from "./shared/types";
+import { istDayWindow } from "./audit-trail";
 import { buildReportWorkbook } from "./shared/excel-renderer";
 
 /**
@@ -19,8 +21,12 @@ export type BeneficiaryImpactParams = {
   organisationId: string;
   /** Optional project filter; empty = all active projects. */
   projectId?: string;
-  /** Date range for the impact records and disbursements considered. */
+  /**
+   * YYYY-MM-DD (IST). Inclusive — impact records and disbursements from
+   * midnight on this day onwards are counted.
+   */
   from: string;
+  /** YYYY-MM-DD (IST). Inclusive — the whole of this day is counted. */
   to: string;
 };
 
@@ -53,14 +59,17 @@ export const beneficiaryImpactReport: ReportGenerator<
     if (Number.isNaN(Date.parse(params.from)) || Number.isNaN(Date.parse(params.to))) {
       return { ok: false, errors: ["from and to must be valid ISO dates"] };
     }
+    // Both ends are inclusive, so a single-day report has from === to.
+    if (new Date(params.from) > new Date(params.to)) {
+      return { ok: false, errors: ["from must not be after to"] };
+    }
     return { ok: true };
   },
 
   async computeData(
     params: BeneficiaryImpactParams,
   ): Promise<ComputedReport<BeneficiaryImpactData>> {
-    const from = new Date(params.from);
-    const to = new Date(params.to);
+    const { start, end, endExclusive } = istDayWindow(params.from, params.to);
     const projects = await prismaUnsafe.project.findMany({
       where: {
         organisationId: params.organisationId,
@@ -86,7 +95,7 @@ export const beneficiaryImpactReport: ReportGenerator<
     const impactRows = await prismaUnsafe.impactRecord.findMany({
       where: {
         beneficiaryId: { in: [...allBenIds] },
-        recordDate: { gte: from, lt: to },
+        recordDate: { gte: start, lt: endExclusive },
       },
     });
     // metricName values are free-form numerics OR strings. Try to parse as
@@ -119,7 +128,7 @@ export const beneficiaryImpactReport: ReportGenerator<
     const disbursements = await prismaUnsafe.beneficiaryDisbursement.findMany({
       where: {
         beneficiaryId: { in: [...allBenIds] },
-        disbursementDate: { gte: from, lt: to },
+        disbursementDate: { gte: start, lt: endExclusive },
       },
       include: { beneficiary: { include: { enrolments: true } } },
     });
@@ -171,7 +180,7 @@ export const beneficiaryImpactReport: ReportGenerator<
       type: "BENEFICIARY_IMPACT",
       organisationId: params.organisationId,
       title: "Beneficiary Impact Report",
-      periodLabel: `${from.toISOString().slice(0, 10)} → ${to.toISOString().slice(0, 10)}`,
+      periodLabel: `${formatIST(start, "dd MMM yyyy")} – ${formatIST(end, "dd MMM yyyy")}`,
       generatedAt: new Date().toISOString(),
       data: { projects: rows, hasData },
     };

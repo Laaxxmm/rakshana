@@ -19,6 +19,10 @@ export const PERMISSIONS = {
   "user.invite":            ["OWNER"],
   "user.role.change":       ["OWNER"],
   "user.deactivate":        ["OWNER"],
+  // Changing your OWN password, on /settings/account. Every role gets it —
+  // the action reads the target user id from the session, never from input,
+  // so this cannot be used to rotate somebody else's credentials.
+  "user.password.change":   ["OWNER", "ADMIN", "ACCOUNTANT", "PROJECT_MANAGER", "AUDITOR", "VIEWER"],
 
   // ----- Donor management -----
   "donor.view":             ["OWNER", "ADMIN", "ACCOUNTANT", "PROJECT_MANAGER", "AUDITOR"],

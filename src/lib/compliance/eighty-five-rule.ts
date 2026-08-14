@@ -43,9 +43,29 @@ import {
  * the balance sheet under "Corpus Fund" and are surfaced separately for
  * ITR-7 Schedule VC.
  *
- * FCRA donations DO count toward receipts. The Phase 3 expense layer
- * already enforces that FCRA application must be from FCRA bank accounts
- * — we surface the FCRA-only subtotals here for the auditor.
+ * In-kind gifts (grain, land, equipment) are kept out of the receipts
+ * denominator ONLY. Goods are consumed directly and never route through an
+ * Expense, so counting them there raises the denominator while the numerator
+ * cannot move — the trust would show a phantom shortfall. The Income &
+ * Expenditure, Receipts & Payments and Fund Flow statements keep them out of
+ * income too, though each of those reads the `isInKind` column alone where
+ * this file also treats a mode of IN_KIND as a gift of goods (see the loop
+ * below).
+ *
+ * They are excluded from nothing else. An in-kind corpus gift is still
+ * corpus: it sits in the Balance Sheet corpus fund and must appear in ITR-7
+ * Schedule VC, or the two documents the CA files from disagree. An in-kind
+ * anonymous gift is still an anonymous donation for Sec 115BBC: it belongs in
+ * `anonymousDonations`, the total measured against the floor, so dropping it
+ * would understate the 30% taxable excess. An in-kind gift from a foreign
+ * source is still a foreign contribution on Schedule VC, declared on the same
+ * line that counts its donor.
+ *
+ * FCRA donations count toward receipts like any other voluntary
+ * contribution, to the extent they arrive as money. `fcraContributions` and
+ * `domesticContributionsExCorpus` are a whole-ledger split of the same
+ * non-corpus, non-anonymous population — the Schedule VC disclosure — so
+ * they carry in-kind and are not summands of `totalReceipts`.
  *
  * Application percentage = (totalApplication / totalReceipts) × 100,
  * rounded to 2 decimal places. If totalReceipts = 0, percentage = 0.
@@ -72,16 +92,29 @@ export type EightyFiveRuleInput = {
 
 export type EightyFiveRuleBreakdown = {
   financialYear: string;
-  // Receipts
+  // Receipts — money only; in-kind gifts are not part of the Sec-11 denominator
   voluntaryContributionsExCorpus: string;
+  /**
+   * Whole foreign-source intake outside corpus including in-kind — the
+   * Schedule VC foreign line, matching `donorCounts.fcra`.
+   */
   fcraContributions: string;
+  /**
+   * Whole domestic intake outside corpus including in-kind — the Schedule VC
+   * domestic line, matching `donorCounts.domestic`.
+   */
+  domesticContributionsExCorpus: string;
+  /** Whole corpus intake including in-kind, to match the Balance Sheet. */
   corpusContributions: string;
+  /** Whole anonymous intake including in-kind — the Sec 115BBC base. */
   anonymousDonations: string;
   anonymousExcessOverFloor: string;
   /**
-   * Floor under Sec 115BBC = MAX(₹1,00,000, 5% of total domestic donations).
-   * Anything above the floor is taxed at 30%; below the floor it's normal
-   * income for the 85% calc.
+   * Floor under Sec 115BBC = MAX(₹1,00,000, 5% of the non-corpus,
+   * non-anonymous donations received, foreign and domestic alike — the
+   * anonymous total itself is not part of that base). Anything above the floor
+   * is taxed at 30%; below the floor it is normal income, and reaches the 85%
+   * calc to the extent it arrived as money.
    */
   anonymousFloor: string;
   otherIncome: string;
@@ -128,11 +161,16 @@ export async function computeEightyFiveRule(
     include: { donor: { select: { isAnonymousBucket: true, donorType: true } } },
   });
 
+  // Money-only subtotals (the Sec-11 denominator) and whole-ledger subtotals
+  // (Schedule VC, Sec 115BBC) are accumulated side by side from one pass:
+  // in-kind belongs in the latter and not the former.
   let voluntaryExCorpus = new Decimal(0);
   let fcraContributions = new Decimal(0);
+  let domesticExCorpus = new Decimal(0);
   let corpusContributions = new Decimal(0);
   let anonymousDonations = new Decimal(0);
-  let domesticDonationsForFloor = new Decimal(0);
+  /** Anonymous gifts that arrived as money, i.e. the receipts-eligible slice. */
+  let anonymousMonetary = new Decimal(0);
 
   const donorCounts = {
     corpus: new Set<string>(),
@@ -143,11 +181,21 @@ export async function computeEightyFiveRule(
 
   for (const d of donations) {
     const amt = new Decimal(d.amount.toString());
+    // `recordDonation` in donations/actions.ts writes isInKind as
+    // (mode === "IN_KIND" || the flag), so on anything the app recorded the
+    // two columns agree and either one would answer. The OR is cover for rows
+    // written some other way — an import, a hand-repaired production row —
+    // where an IN_KIND mode with the flag left false would otherwise put
+    // donated grain into the Sec-11 denominator against a numerator that can
+    // never move. 10bd-aggregator.ts reads the same two columns, for its own
+    // reason: Form 10BD excludes in-kind donations from the return outright.
+    const inKind = d.isInKind || d.mode === "IN_KIND";
     const isAnon =
       d.donor.isAnonymousBucket || d.donor.donorType === "ANONYMOUS";
 
     if (isAnon) {
       anonymousDonations = anonymousDonations.plus(amt);
+      if (!inKind) anonymousMonetary = anonymousMonetary.plus(amt);
       donorCounts.anonymous.add(d.donorId);
       continue;
     }
@@ -158,19 +206,25 @@ export async function computeEightyFiveRule(
       continue;
     }
 
+    // The Schedule VC split is whole-ledger on both sides so each line
+    // describes the same population as the donor count beside it.
     if (d.isFcra) {
       fcraContributions = fcraContributions.plus(amt);
       donorCounts.fcra.add(d.donorId);
     } else {
+      domesticExCorpus = domesticExCorpus.plus(amt);
       donorCounts.domestic.add(d.donorId);
     }
 
-    voluntaryExCorpus = voluntaryExCorpus.plus(amt);
-    domesticDonationsForFloor = domesticDonationsForFloor.plus(amt);
+    if (!inKind) voluntaryExCorpus = voluntaryExCorpus.plus(amt);
   }
 
-  // 115BBC floor: MAX(₹1,00,000, 5% of total domestic donations).
-  const percentFloor = domesticDonationsForFloor
+  // 115BBC floor: MAX(₹1,00,000, 5% of the non-corpus, non-anonymous
+  // donations, foreign and domestic alike). Anonymous rows took the `continue`
+  // above before reaching either of these two totals, so they are outside the
+  // base — the floor is what their own total is then measured against.
+  const percentFloor = fcraContributions
+    .plus(domesticExCorpus)
     .mul(ANON_DONATION_PERCENT_FLOOR)
     .div(100);
   const fixedFloor = new Decimal(ANON_DONATION_FIXED_FLOOR);
@@ -179,7 +233,14 @@ export async function computeEightyFiveRule(
     new Decimal(0),
     anonymousDonations.minus(anonymousFloor),
   );
-  const anonymousIncludedInReceipts = anonymousDonations.minus(anonymousExcess);
+  // Only the under-floor part of the anonymous total is normal income (the
+  // excess is taxed at 30% on its own), and of that only what arrived as
+  // money can ever be applied — hence the monetary anonymous total capped at
+  // the floor, which leaves the 115BBC figures above untouched.
+  const anonymousIncludedInReceipts = Decimal.min(
+    anonymousMonetary,
+    anonymousFloor,
+  );
 
   const otherIncome = new Decimal(input.manualAdjustments?.otherIncome ?? "0");
   const totalReceipts = voluntaryExCorpus
@@ -242,6 +303,7 @@ export async function computeEightyFiveRule(
     financialYear,
     voluntaryContributionsExCorpus: voluntaryExCorpus.toFixed(2),
     fcraContributions: fcraContributions.toFixed(2),
+    domesticContributionsExCorpus: domesticExCorpus.toFixed(2),
     corpusContributions: corpusContributions.toFixed(2),
     anonymousDonations: anonymousDonations.toFixed(2),
     anonymousExcessOverFloor: anonymousExcess.toFixed(2),

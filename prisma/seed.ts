@@ -99,10 +99,21 @@ async function main() {
   // -------------------------------------------------------------------
   // 3. Owner user + membership
   // -------------------------------------------------------------------
+  const ownerExisted =
+    (await prisma.user.count({ where: { email: OWNER_EMAIL } })) > 0;
   const passwordHash = await bcrypt.hash(OWNER_PASSWORD, 12);
   const user = await prisma.user.upsert({
     where: { email: OWNER_EMAIL },
-    update: { passwordHash, name: "Lakshmanan" },
+    // The seeded password is written once, at create. `db:seed:prod` is a
+    // manual command that nothing stops anyone running a second time against a
+    // populated database, and resetting the hash here would silently revert a
+    // rotation made at /settings/account, handing the account back to anyone
+    // holding a copy of this repository — OWNER_PASSWORD above is a committed
+    // literal, which is why the deploy steps in OPERATIONS.md have the owner
+    // rotate it at first sign-in.
+    // Locked-out owners are recovered by the direct hash rewrite in
+    // OPERATIONS.md §7, not by re-seeding.
+    update: { name: "Lakshmanan" },
     create: {
       id: OWNER_USER_ID,
       email: OWNER_EMAIL,
@@ -258,7 +269,9 @@ async function main() {
 
   console.log("✓ Seed complete.");
   console.log(`  Org:    ${org.name} (${org.id})`);
-  console.log(`  Owner:  ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
+  // The credential is printed only for an owner this run created — on a re-seed
+  // it is no longer the live password, and the deploy log is not the place for it.
+  console.log(`  Owner:  ${OWNER_EMAIL}${ownerExisted ? "" : ` / ${OWNER_PASSWORD}`}`);
   console.log(`  FY:     ${fy}`);
 }
 
@@ -433,23 +446,38 @@ async function seedExpenseCategories(organisationId: string) {
 }
 
 async function seedApprovalPolicies(organisationId: string) {
+  // PRD §7.3 tiers: an accountant clears up to ₹10,000, an admin up to
+  // ₹1,00,000, anything above needs an owner. Bands are half-open
+  // [minAmount, maxAmount) — each ceiling is the next tier's floor, one paisa
+  // above its own inclusive limit — so every amount from zero upwards matches
+  // exactly one band. Amounts that match none can never be approved at all.
   const policies = [
-    { minAmount: 0,       maxAmount: 10_000,  requiredRole: "ACCOUNTANT" as const },
-    { minAmount: 10_001,  maxAmount: 100_000, requiredRole: "ADMIN" as const },
-    { minAmount: 100_001, maxAmount: null,    requiredRole: "OWNER" as const },
+    { minAmount: "0",         maxAmount: "10000.01",  requiredRole: "ACCOUNTANT" as const },
+    { minAmount: "10000.01",  maxAmount: "100000.01", requiredRole: "ADMIN" as const },
+    { minAmount: "100000.01", maxAmount: null,        requiredRole: "OWNER" as const },
   ];
   for (const p of policies) {
-    // No natural unique key — only seed if no policy exists for that tier yet.
-    const exists = await prisma.approvalPolicy.findFirst({
-      where: { organisationId, minAmount: p.minAmount, scope: "EXPENSE" },
+    // No natural unique key — one row per tier, identified by the role it
+    // grants. Only a missing tier is planted. Nothing in the app writes
+    // ApprovalPolicy (approval-policy.ts reads the bands, no screen edits
+    // them), so a band that differs from these defaults got there by hand in
+    // the database or from a migration repairing the shape of existing rows —
+    // and writing to a tier that already exists would undo that. OPERATIONS.md
+    // §1 step 5 calls `db:seed:prod` a one-off just after the first deploy,
+    // but it is a manual command with nothing stopping a second run against a
+    // populated database, which is the run this guard is for. Repairing rows
+    // already in the database stays a migration's job, since that is what a
+    // deploy runs.
+    const existing = await prisma.approvalPolicy.findFirst({
+      where: { organisationId, scope: "EXPENSE", requiredRole: p.requiredRole },
     });
-    if (exists) continue;
+    if (existing) continue;
     await prisma.approvalPolicy.create({
       data: {
         organisationId,
         scope: "EXPENSE",
         minAmount: p.minAmount,
-        maxAmount: p.maxAmount ?? null,
+        maxAmount: p.maxAmount,
         requiredRole: p.requiredRole,
         level: 1,
         isActive: true,

@@ -30,7 +30,11 @@ export default async function PettyCashPage() {
       where: { isActive: true },
       orderBy: { name: "asc" },
       include: {
-        topUps: { orderBy: { topUpDate: "desc" }, take: 10 },
+        topUps: {
+          orderBy: { topUpDate: "desc" },
+          take: 10,
+          include: { createdBy: { select: { name: true, email: true } } },
+        },
         expenses: {
           where: { status: { not: "CANCELLED" } },
           orderBy: { expenseDate: "desc" },
@@ -147,6 +151,7 @@ export default async function PettyCashPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
+                        <TableHead>By</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -154,6 +159,17 @@ export default async function PettyCashPage() {
                       {f.topUps.map((t) => (
                         <TableRow key={t.id}>
                           <TableCell className="text-xs">{formatIST(t.topUpDate)}</TableCell>
+                          {/*
+                            Who drew the cash out of the bank — a top-up has no
+                            vendor, bill or approval chain, so this is the whole
+                            audit trail for the movement. Blank where the row
+                            predates the column and no paired expense named the
+                            signatory, and where that User row has since been
+                            deleted (the relation is optional and nulls out).
+                          */}
+                          <TableCell className="text-sm">
+                            {t.createdBy?.name ?? t.createdBy?.email ?? "—"}
+                          </TableCell>
                           <TableCell className="text-right font-mono tabular-nums">
                             {formatINRWithSymbol(t.amount.toString(), { paise: true })}
                           </TableCell>

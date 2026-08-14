@@ -153,6 +153,13 @@ export const reallocateBudget = safeAction
   .metadata({ requires: "project.budget.reallocate" })
   .inputSchema(reallocateBudgetSchema)
   .action(async ({ parsedInput }) => {
+    // ProjectBudgetHead has no organisationId, so the extension cannot scope it.
+    // Reaching the heads through their owning project is what proves tenancy —
+    // budgetedAmount is printed in the donor-facing breakup of every
+    // utilisation certificate, so a foreign head must never be writable.
+    const project = await prisma.project.findFirstOrThrow({
+      where: { budgetHeads: { some: { id: parsedInput.fromHeadId } } },
+    });
     await prismaUnsafe.$transaction(async (tx) => {
       const from = await tx.projectBudgetHead.findUniqueOrThrow({
         where: { id: parsedInput.fromHeadId },
@@ -160,7 +167,7 @@ export const reallocateBudget = safeAction
       const to = await tx.projectBudgetHead.findUniqueOrThrow({
         where: { id: parsedInput.toHeadId },
       });
-      if (from.projectId !== to.projectId) {
+      if (from.projectId !== project.id || to.projectId !== project.id) {
         throw new Error("Cannot reallocate across projects.");
       }
       const fromNew = new Decimal(from.budgetedAmount.toString()).minus(parsedInput.amount);
@@ -213,6 +220,13 @@ export const generateUtilCert = safeAction
   .metadata({ requires: "project.utilisationCertificate.generate" })
   .inputSchema(generateUtilCertSchema)
   .action(async ({ parsedInput, ctx }) => {
+    // generateUtilisationCertificate runs entirely on prismaUnsafe, so it
+    // resolves both ids without a tenancy filter. Prove ownership here first:
+    // a foreign projectId would burn a number from that org's UTILISATION
+    // series and file a certificate they never issued against their own
+    // donation and expense totals.
+    await prisma.project.findUniqueOrThrow({ where: { id: parsedInput.projectId } });
+    await prisma.donor.findUniqueOrThrow({ where: { id: parsedInput.donorId } });
     const result = await generateUtilisationCertificate({
       projectId: parsedInput.projectId,
       donorId: parsedInput.donorId,
@@ -236,23 +250,42 @@ export const generateUtilCert = safeAction
 export const migrateFromPlaceholder = safeAction
   .metadata({ requires: "project.migrateFromPlaceholder" })
   .inputSchema(migrateFromPlaceholderSchema)
-  .action(async ({ parsedInput }) => {
+  .action(async ({ parsedInput, ctx }) => {
+    // Unscoped transaction: every where clause carries organisationId by hand.
+    // Without it a caller could repoint another org's donations at their own
+    // project, silently shrinking the victim's project-utilisation report by
+    // the moved amount. A partial match means at least one id was foreign, so
+    // the whole migration aborts rather than moving a subset.
+    //
+    // The counts are compared against the DISTINCT ids: updateMany reports rows
+    // touched, and a caller repeating an id in the list is a harmless duplicate,
+    // not a tenancy fault. Comparing against the raw array length would abort a
+    // legitimate migration and point the operator at a breach that never was.
+    const organisationId = ctx.scope.organisationId;
+    const donationIds = [...new Set(parsedInput.donationIds)];
+    const expenseIds = [...new Set(parsedInput.expenseIds)];
     const result = await prismaUnsafe.$transaction(async (tx) => {
       const target = await tx.project.findUniqueOrThrow({
-        where: { id: parsedInput.targetProjectId },
+        where: { id: parsedInput.targetProjectId, organisationId },
       });
-      const donationsUpdated = parsedInput.donationIds.length
+      const donationsUpdated = donationIds.length
         ? await tx.donation.updateMany({
-            where: { id: { in: parsedInput.donationIds } },
+            where: { id: { in: donationIds }, organisationId },
             data: { projectId: target.id },
           })
         : { count: 0 };
-      const expensesUpdated = parsedInput.expenseIds.length
+      if (donationsUpdated.count !== donationIds.length) {
+        throw new Error("Some donations were not found in this organisation.");
+      }
+      const expensesUpdated = expenseIds.length
         ? await tx.expense.updateMany({
-            where: { id: { in: parsedInput.expenseIds } },
+            where: { id: { in: expenseIds }, organisationId },
             data: { projectId: target.id },
           })
         : { count: 0 };
+      if (expensesUpdated.count !== expenseIds.length) {
+        throw new Error("Some expenses were not found in this organisation.");
+      }
       return {
         donationsMoved: donationsUpdated.count,
         expensesMoved: expensesUpdated.count,

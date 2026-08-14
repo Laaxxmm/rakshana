@@ -295,6 +295,7 @@ model User {
   communications   Communication[]
   notifications    Notification[]
   pettyCashFloats  PettyCashFloat[] @relation("PettyCashCustodian")
+  pettyCashTopUps  PettyCashTopUp[] @relation("PettyCashTopUpCreatedBy")
   generatedReports Report[]   @relation("ReportGeneratedBy")
 }
 
@@ -706,6 +707,16 @@ model PettyCashTopUp {
   topUpDate   DateTime
   bankAccountId String?
   remarks     String?
+  // Signatory who drew the cash out of the bank. A top-up has no vendor, no
+  // bill and no approval chain, so this column and the AuditLog row that
+  // topUpPettyCash writes beside it are the whole attribution; the petty-cash
+  // page shows it as the "By" column on each float's top-up table.
+  // Nullable: the FK is ON DELETE SET NULL, so removing a User must not erase
+  // the movement. Rows written before the column existed were backfilled
+  // from their paired 'PCV-TOPUP/%' Expense by migration 20260815090000, and
+  // stay null only where no unambiguous pair carried an actor.
+  createdById String?
+  createdBy   User? @relation("PettyCashTopUpCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 }
 

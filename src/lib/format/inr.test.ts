@@ -88,6 +88,24 @@ describe("inrInWords — Indian lakhs/crores", () => {
     expect(inrInWords(10000000)).toBe("Rupees One Crore only");
   });
 
+  it("spells out paise instead of rounding them away", () => {
+    // The 80G receipt prints these words directly under the figure, and the
+    // words are what the donor's assessing officer reads as the amount.
+    expect(inrInWords("2500.50")).toBe(
+      "Rupees Two Thousand Five Hundred and Fifty Paise only",
+    );
+    expect(inrInWords(new Decimal("1.05"))).toBe("Rupees One and Five Paise only");
+    expect(inrInWords("0.75")).toBe("Rupees Zero and Seventy Five Paise only");
+    expect(inrInWords("123456.99")).toBe(
+      "Rupees One Lakh Twenty Three Thousand Four Hundred Fifty Six and Ninety Nine Paise only",
+    );
+    expect(inrInWords("-2500.50")).toBe(
+      "Minus Rupees Two Thousand Five Hundred and Fifty Paise only",
+    );
+    // A trailing .00 must not grow a paise clause.
+    expect(inrInWords("2500.00")).toBe("Rupees Two Thousand Five Hundred only");
+  });
+
   it("can omit 'Rupees' prefix", () => {
     expect(inrInWords(45, { withRupees: false })).toBe("Forty Five");
   });

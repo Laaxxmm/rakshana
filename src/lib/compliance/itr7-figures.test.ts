@@ -240,6 +240,136 @@ describe("computeItr7Figures", () => {
     expect(f.rule85.applicationPercentage).toBe("76.92");
     expect(f.rule85.meetsThreshold).toBe(false);
   });
+
+  it("keeps in-kind corpus in Schedule VC so it ties to the Balance Sheet corpus fund", async () => {
+    const cash = await prismaUnsafe.donor.create({
+      data: { organisationId: TEST_ORG, donorType: "INDIVIDUAL", name: "Cash Don" },
+    });
+    await prismaUnsafe.donation.create({
+      data: {
+        organisationId: TEST_ORG,
+        donorId: cash.id,
+        receiptNumber: "RKS/2024-25/K01",
+        donationDate: new Date("2024-05-01"),
+        amount: "400000",
+        mode: "NEFT",
+        purpose: "GENERAL",
+        is80GEligible: true,
+        status: "RECEIVED",
+      },
+    });
+    const land = await prismaUnsafe.donor.create({
+      data: { organisationId: TEST_ORG, donorType: "INDIVIDUAL", name: "Land Don" },
+    });
+    await prismaUnsafe.donation.create({
+      data: {
+        organisationId: TEST_ORG,
+        donorId: land.id,
+        receiptNumber: "RKS/2024-25/K02",
+        donationDate: new Date("2024-06-01"),
+        amount: "2500000",
+        mode: "IN_KIND",
+        isInKind: true,
+        inKindDescription: "1.2 acres, Tiruvallur district",
+        purpose: "CORPUS",
+        is80GEligible: true,
+        status: "RECEIVED",
+      },
+    });
+
+    const f = await computeItr7Figures({
+      organisationId: TEST_ORG,
+      financialYear: FY,
+    });
+    // The land is on the Balance Sheet as corpus, so the filed schedule has
+    // to show the same ₹25,00,000 or the two documents contradict each other
+    expect(f.scheduleVc.corpusDonations).toBe("2500000.00");
+    expect(f.scheduleVc.corpusDonorCount).toBe(1);
+    // It can never turn into an Expense though, so the Sec-11 denominator
+    // still sees only the ₹4,00,000 of money
+    expect(f.rule85.totalReceipts).toBe("400000.00");
+  });
+
+  it("declares in-kind gifts on the Schedule VC line that counts their donor", async () => {
+    // Domestic donor: ₹4,00,000 by NEFT plus ₹6,00,000 of grain
+    const dom = await prismaUnsafe.donor.create({
+      data: { organisationId: TEST_ORG, donorType: "INDIVIDUAL", name: "Grain Don" },
+    });
+    await prismaUnsafe.donation.create({
+      data: {
+        organisationId: TEST_ORG,
+        donorId: dom.id,
+        receiptNumber: "RKS/2024-25/V01",
+        donationDate: new Date("2024-05-01"),
+        amount: "400000",
+        mode: "NEFT",
+        purpose: "GENERAL",
+        is80GEligible: true,
+        status: "RECEIVED",
+      },
+    });
+    await prismaUnsafe.donation.create({
+      data: {
+        organisationId: TEST_ORG,
+        donorId: dom.id,
+        receiptNumber: "RKS/2024-25/V02",
+        donationDate: new Date("2024-05-20"),
+        amount: "600000",
+        mode: "IN_KIND",
+        isInKind: true,
+        inKindDescription: "18 tonnes of rice",
+        purpose: "GENERAL",
+        is80GEligible: true,
+        status: "RECEIVED",
+      },
+    });
+    // Foreign source: ₹1,00,000 by NEFT plus a ₹9,00,000 scanner
+    const foreign = await prismaUnsafe.donor.create({
+      data: { organisationId: TEST_ORG, donorType: "FOREIGN_SOURCE", name: "Foreign Don" },
+    });
+    await prismaUnsafe.donation.create({
+      data: {
+        organisationId: TEST_ORG,
+        donorId: foreign.id,
+        receiptNumber: "RKS/2024-25/V03",
+        donationDate: new Date("2024-06-01"),
+        amount: "100000",
+        mode: "NEFT",
+        purpose: "GENERAL",
+        isFcra: true,
+        is80GEligible: true,
+        status: "RECEIVED",
+      },
+    });
+    await prismaUnsafe.donation.create({
+      data: {
+        organisationId: TEST_ORG,
+        donorId: foreign.id,
+        receiptNumber: "RKS/2024-25/V04",
+        donationDate: new Date("2024-06-15"),
+        amount: "900000",
+        mode: "IN_KIND",
+        isInKind: true,
+        inKindDescription: "Diagnostic scanner",
+        purpose: "GENERAL",
+        isFcra: true,
+        is80GEligible: true,
+        status: "RECEIVED",
+      },
+    });
+
+    const f = await computeItr7Figures({
+      organisationId: TEST_ORG,
+      financialYear: FY,
+    });
+    // Each filed line covers everything the donors beside it gave
+    expect(f.scheduleVc.fcraDonations).toBe("1000000.00");
+    expect(f.scheduleVc.fcraDonorCount).toBe(1);
+    expect(f.scheduleVc.domesticOtherThanCorpus).toBe("1000000.00");
+    expect(f.scheduleVc.domesticDonorCount).toBe(1);
+    // The Sec-11 denominator still sees the ₹5,00,000 of money alone
+    expect(f.rule85.totalReceipts).toBe("500000.00");
+  });
 });
 
 describe("persistItr7Figures", () => {

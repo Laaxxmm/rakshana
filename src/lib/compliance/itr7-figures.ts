@@ -1,5 +1,4 @@
 import "server-only";
-import { Decimal } from "decimal.js";
 import { prismaUnsafe } from "@/lib/db/prisma";
 import { storage, storageKey } from "@/lib/storage";
 import { buildWorkbook, type ExcelSheet } from "@/lib/exporter/xlsx";
@@ -69,12 +68,16 @@ export async function computeItr7Figures(
   // Schedule VC is the donor-side breakdown the IT department wants in ITR-7.
   // The 85% calc already segregates corpus / FCRA / domestic / anonymous —
   // we just relabel for the schedule.
+  //
+  // Every line here is a whole-ledger figure: corpus ties to the Balance
+  // Sheet corpus fund, anonymous is the Sec 115BBC base, and the domestic
+  // and foreign lines declare each contribution the trust received under the
+  // head that counts its donor. In-kind is out of the Sec-11 denominator
+  // only, so these lines do not reconcile to `rule85.totalReceipts`.
   const scheduleVc = {
     corpusDonations: rule85.corpusContributions,
     corpusDonorCount: rule85.donorCounts.corpus,
-    domesticOtherThanCorpus: new Decimal(rule85.voluntaryContributionsExCorpus)
-      .minus(rule85.fcraContributions)
-      .toFixed(2),
+    domesticOtherThanCorpus: rule85.domesticContributionsExCorpus,
     domesticDonorCount: rule85.donorCounts.domestic,
     fcraDonations: rule85.fcraContributions,
     fcraDonorCount: rule85.donorCounts.fcra,

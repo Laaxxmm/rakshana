@@ -92,6 +92,8 @@ async function makeDonation(opts: {
   isFcra?: boolean;
   donationDate?: Date;
   receiptNumber?: string;
+  mode?: "CASH" | "CHEQUE" | "NEFT" | "UPI" | "IN_KIND";
+  isInKind?: boolean;
 }) {
   return prismaUnsafe.donation.create({
     data: {
@@ -100,7 +102,8 @@ async function makeDonation(opts: {
       receiptNumber: opts.receiptNumber ?? `RKS/${FY}/${Math.floor(Math.random() * 1_000_000)}`,
       donationDate: opts.donationDate ?? FY_START,
       amount: opts.amount,
-      mode: "NEFT",
+      mode: opts.mode ?? "NEFT",
+      isInKind: opts.isInKind ?? false,
       purpose: opts.purpose ?? "GENERAL",
       isFcra: opts.isFcra ?? false,
       is80GEligible: true,
@@ -234,6 +237,104 @@ describe("computeEightyFiveRule", () => {
     expect(out.shortfallAmount).toBe("350000.00");
   });
 
+  it("excludes in-kind from the receipts denominator only — corpus, donor counts and the 115BBC floor still see it", async () => {
+    const cash = await makeDonor({ name: "Cash Donor" });
+    await makeDonation({ donorId: cash.id, amount: "3000000" });
+    // ₹10,00,000 of grain, carrying both the flag and the in-kind mode
+    const kind = await makeDonor({ name: "Grain Donor" });
+    await makeDonation({
+      donorId: kind.id,
+      amount: "1000000",
+      mode: "IN_KIND",
+      isInKind: true,
+    });
+    // ₹50,00,000 of donated land held as corpus — the Balance Sheet corpus
+    // fund carries it, so ITR-7 Schedule VC has to as well
+    const land = await makeDonor({ name: "Land Donor" });
+    await makeDonation({
+      donorId: land.id,
+      amount: "5000000",
+      purpose: "CORPUS",
+      mode: "IN_KIND",
+      isInKind: true,
+    });
+    const cat = await makeCategory({ name: "Programme", isCapital: false });
+    await makeExpense({ amount: "2700000", categoryId: cat.id });
+
+    const out = await computeEightyFiveRule({
+      organisationId: TEST_ORG,
+      financialYear: FY,
+    });
+    // Denominator is the ₹30L cash only → 27L / 30L = 90%, no shortfall
+    expect(out.voluntaryContributionsExCorpus).toBe("3000000.00");
+    expect(out.totalReceipts).toBe("3000000.00");
+    expect(out.applicationPercentage).toBe("90.00");
+    expect(out.meetsThreshold).toBe(true);
+    expect(out.shortfallAmount).toBe("0.00");
+    // …while every non-denominator figure keeps the in-kind gifts
+    expect(out.corpusContributions).toBe("5000000.00");
+    expect(out.donorCounts.corpus).toBe(1);
+    expect(out.domesticContributionsExCorpus).toBe("4000000.00");
+    expect(out.donorCounts.domestic).toBe(2);
+    // Floor = 5% of ₹40L (cash + grain), not 5% of the ₹30L of cash alone
+    expect(out.anonymousFloor).toBe("200000.00");
+  });
+
+  it("reads a mode of IN_KIND as goods even when the isInKind flag was never set", async () => {
+    // `createDonation` writes both columns together, so this row stands for
+    // one that reached the table some other way — an import or a hand-fixed
+    // production row. Counting it as money would raise the denominator
+    // against a numerator that goods can never move.
+    const cash = await makeDonor({ name: "Cash Donor" });
+    await makeDonation({ donorId: cash.id, amount: "1000000" });
+    const kind = await makeDonor({ name: "Imported Grain Donor" });
+    await makeDonation({
+      donorId: kind.id,
+      amount: "400000",
+      mode: "IN_KIND",
+      isInKind: false,
+    });
+
+    const out = await computeEightyFiveRule({
+      organisationId: TEST_ORG,
+      financialYear: FY,
+    });
+    expect(out.voluntaryContributionsExCorpus).toBe("1000000.00");
+    expect(out.totalReceipts).toBe("1000000.00");
+    // Schedule VC and the 115BBC floor still carry the goods
+    expect(out.domesticContributionsExCorpus).toBe("1400000.00");
+    expect(out.donorCounts.domestic).toBe(2);
+  });
+
+  it("keeps a foreign in-kind contribution in the FCRA total that its donor is counted in", async () => {
+    const foreign = await makeDonor({
+      name: "Foreign Source",
+      donorType: "FOREIGN_SOURCE",
+    });
+    // ₹1,00,000 wired in, plus a ₹9,00,000 scanner shipped as goods
+    await makeDonation({ donorId: foreign.id, amount: "100000", isFcra: true });
+    await makeDonation({
+      donorId: foreign.id,
+      amount: "900000",
+      isFcra: true,
+      mode: "IN_KIND",
+      isInKind: true,
+    });
+
+    const out = await computeEightyFiveRule({
+      organisationId: TEST_ORG,
+      financialYear: FY,
+    });
+    // The whole ₹10,00,000 is a foreign contribution from the one donor the
+    // FCRA count reports — figure and count describe the same population
+    expect(out.fcraContributions).toBe("1000000.00");
+    expect(out.donorCounts.fcra).toBe(1);
+    expect(out.domesticContributionsExCorpus).toBe("0.00");
+    // Only the money can ever route through an Expense
+    expect(out.voluntaryContributionsExCorpus).toBe("100000.00");
+    expect(out.totalReceipts).toBe("100000.00");
+  });
+
   it("excludes DRAFT/REJECTED/CANCELLED expenses from application", async () => {
     const donor = await makeDonor({ name: "D" });
     await makeDonation({ donorId: donor.id, amount: "100000" });
@@ -286,6 +387,33 @@ describe("computeEightyFiveRule", () => {
     expect(out.anonymousExcessOverFloor).toBe("250000.00");
     // Receipts = 50L domestic + 2.5L anon under-floor = 52.5L
     expect(out.totalReceipts).toBe("5250000.00");
+  });
+
+  it("counts in-kind anonymous donations under 115BBC but keeps them out of receipts", async () => {
+    // Domestic: ₹50,00,000 → 5% = ₹2,50,000 → floor = max(1L, 2.5L) = 2.5L
+    const dom = await makeDonor({ name: "Dom" });
+    await makeDonation({ donorId: dom.id, amount: "5000000" });
+    // One anonymous box: ₹2,00,000 of cash plus ₹3,00,000 of donated goods
+    const anon = await makeDonor({ name: "Anon", isAnonymousBucket: true });
+    await makeDonation({ donorId: anon.id, amount: "200000", mode: "CASH" });
+    await makeDonation({
+      donorId: anon.id,
+      amount: "300000",
+      mode: "IN_KIND",
+      isInKind: true,
+    });
+
+    const out = await computeEightyFiveRule({
+      organisationId: TEST_ORG,
+      financialYear: FY,
+    });
+    // 115BBC is charged on the whole anonymous intake: 5L - 2.5L floor = 2.5L
+    expect(out.anonymousDonations).toBe("500000.00");
+    expect(out.anonymousFloor).toBe("250000.00");
+    expect(out.anonymousExcessOverFloor).toBe("250000.00");
+    expect(out.donorCounts.anonymous).toBe(1);
+    // Receipts take the ₹50L domestic + the ₹2L of anonymous cash only
+    expect(out.totalReceipts).toBe("5200000.00");
   });
 
   it("applies manual otherIncome + loansRepaid adjustments", async () => {

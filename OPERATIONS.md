@@ -51,11 +51,15 @@ runbook for incidents, backups, and routine maintenance.
 4. **Trigger the first deploy**
 
    - Push to `main` (or click **Deploy** in Railway)
-   - Watch the build logs. The build runs:
-     1. `npm ci` (installs deps; `postinstall` regens Prisma client)
-     2. `prisma generate` (regen as belt-and-braces)
-     3. `prisma migrate deploy` (applies migrations to the fresh Postgres)
-     4. `next build` (compiles the app)
+   - Watch the build logs. `nixpacks.toml` defines the build:
+     1. `npm install --legacy-peer-deps --include=dev` (installs deps;
+        `postinstall` regens the Prisma client)
+     2. `npx prisma generate` (regen as belt-and-braces)
+     3. `npx next build` (compiles the app)
+   - Migrations do not run in the build — Railway only injects
+     `DATABASE_URL` at runtime. They run from `deploy.preDeployCommand`
+     in `railway.json` (`npx prisma migrate deploy`), after the build
+     and before the container starts.
    - Then `npm run start` boots the server on Railway's `$PORT`
    - Health check `/api/health` must return 200 before Railway marks
      the deploy live. If it 503s, check the **Deploy Logs** for
@@ -68,8 +72,13 @@ runbook for incidents, backups, and routine maintenance.
    - Run: `npm run db:seed:prod`
    - This creates the seed user `lakshmanan@indefine.in` with the
      default password `Welcome@2026`.
-   - **Immediately sign in and change the password.** The default is in
-     the repo and not safe for production.
+   - **Immediately sign in and change the password** at
+     **/settings/account** (account menu → *Settings* → *Your account ·
+     change password*). The default is in the repo and not safe for
+     production.
+   - The seed writes that password only when it creates the user. Re-running
+     `db:seed:prod` on a populated database leaves an already-rotated
+     password alone, so it will not undo this step.
 
 6. **Add a custom domain (optional)**
 
@@ -243,26 +252,53 @@ request — the bucket stays private, no public or presigned URLs.
 - The receipt URL embedded in the message uses `AUTH_URL` — make sure
   it's set to the public Railway domain, not `http://localhost:3000`
 
+### Changing a password (routine)
+
+Anyone who can still sign in changes their own password in the app:
+**account menu → Settings → "Your account · change password"**, or go
+straight to `/settings/account`. The form asks for the current password,
+the new one, and a confirmation; the current password is re-checked against
+the stored hash server-side before anything is written.
+
+The new password must be at least 12 characters with an upper-case letter, a
+lower-case letter and a digit, and at most 72 bytes (bcrypt ignores anything
+past 72). Rules live in `src/lib/schemas/user.ts`.
+
+There is no self-service "forgot password" email — a user who cannot sign in
+needs the reset below run by someone with database access.
+
 ### Forgot the OWNER password
 
-If only one OWNER exists and they're locked out:
+If only one OWNER exists and they're locked out, rewrite the hash directly.
+The column is `User.passwordHash`; cost factor 12 matches the seed and
+`SECURITY.md`.
 
 ```bash
 railway run npx tsx -e "
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
-const hash = await bcrypt.hash('NewPass@2026', 12);
-await prisma.user.update({
-  where: { email: 'lakshmanan@indefine.in' },
-  data: { hashedPassword: hash },
-});
-console.log('reset');
-process.exit(0);
+(async () => {
+  const prisma = new PrismaClient();
+  const passwordHash = await bcrypt.hash('NewPass@2026', 12);
+  await prisma.user.update({
+    where: { email: 'lakshmanan@indefine.in' },
+    data: { passwordHash },
+  });
+  console.log('reset');
+  process.exit(0);
+})();
 "
 ```
 
-Always sign in immediately and change again from the UI.
+The async IIFE is not decoration: `tsx -e` compiles to CommonJS and rejects
+top-level `await` outright.
+
+Pick a temporary password that satisfies the rules above, then sign in and
+rotate it at `/settings/account` — the one in this file is public.
+
+Re-seeding is **not** a password reset: `prisma/seed.ts` writes the password
+only in its `create` branch, so `db:seed:prod` against an existing owner
+leaves the current hash untouched.
 
 ---
 

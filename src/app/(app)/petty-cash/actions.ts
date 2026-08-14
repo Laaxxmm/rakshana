@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { Decimal } from "decimal.js";
 import { safeAction } from "@/lib/actions/safe-action";
 import { prisma, prismaUnsafe } from "@/lib/db/prisma";
 import {
@@ -40,51 +39,69 @@ export const deactivatePettyCashFloat = safeAction
   });
 
 /**
- * Top-up flow: creates a `PettyCashTopUp` row AND debits the source bank
- * via an `Expense` row in the same transaction. All-or-nothing.
+ * Top-up flow: creates a `PettyCashTopUp` row, credits the float and writes
+ * the AuditLog entry, all in one transaction. All-or-nothing.
+ *
+ * No Expense is written. A top-up only moves cash between two of the trust's
+ * own pockets; booking it as an expense would count it as application of
+ * income under section 11(1)(a) on top of the vouchers later spent out of the
+ * float, overstating the 85% figure by the amount of every top-up. The bank
+ * side of the movement is the `PettyCashTopUp` row's own bankAccountId, and
+ * the signatory is its createdById.
  */
 export const topUpPettyCash = safeAction
   .metadata({ requires: "pettyCash.topUp" })
   .inputSchema(pettyCashTopUpSchema)
   .action(async ({ parsedInput, ctx }) => {
+    // Resolve both ids through the scoped client first: the transaction below
+    // runs unscoped, so without this a caller could post another org's floatId
+    // or bank account and have the credit land outside their tenant.
+    const float = await prisma.pettyCashFloat.findUniqueOrThrow({
+      where: { id: parsedInput.floatId },
+    });
+    const sourceBank = await prisma.bankAccount.findUniqueOrThrow({
+      where: { id: parsedInput.sourceBankAccountId },
+    });
+
     await prismaUnsafe.$transaction(async (tx) => {
-      const float = await tx.pettyCashFloat.findUniqueOrThrow({
-        where: { id: parsedInput.floatId },
-      });
-      await tx.pettyCashTopUp.create({
+      const topUp = await tx.pettyCashTopUp.create({
         data: {
           floatId: float.id,
           amount: parsedInput.amount.toString(),
           topUpDate: parsedInput.topUpDate,
-          bankAccountId: parsedInput.sourceBankAccountId,
+          bankAccountId: sourceBank.id,
           remarks: parsedInput.remarks,
+          createdById: ctx.scope.userId,
         },
       });
-      const next = new Decimal(float.currentBalance.toString()).plus(parsedInput.amount);
       await tx.pettyCashFloat.update({
         where: { id: float.id },
-        data: { currentBalance: next.toString() },
+        data: { currentBalance: { increment: parsedInput.amount.toString() } },
       });
-      // Audit-trail: also record an Expense row for the bank-side debit so
-      // the bank reconciliation in Phase 5 sees the outflow.
-      await tx.expense.create({
+      // The tenancy extension writes the AuditLog row for scoped models, but
+      // it sees neither of these writes: PettyCashTopUp is parent-scoped so
+      // the extension returns early, and `prismaUnsafe` bypasses it entirely.
+      // Written inside the transaction so the cash movement and the record of
+      // who authorised it commit or roll back together — an unattributable
+      // bank withdrawal is what an auditor treats as a missing voucher.
+      await tx.auditLog.create({
         data: {
           organisationId: ctx.scope.organisationId,
-          voucherNumber: `PCV-TOPUP/${Date.now()}`,
-          expenseDate: parsedInput.topUpDate,
-          grossAmount: parsedInput.amount.toString(),
-          tdsAmount: "0",
-          netPayable: parsedInput.amount.toString(),
-          mode: "OTHER",
-          bankAccountId: parsedInput.sourceBankAccountId,
-          isPettyCash: false,
-          description: `Petty cash top-up: ${float.name}${parsedInput.remarks ? ` — ${parsedInput.remarks}` : ""}`,
-          status: "APPROVED",
-          createdById: ctx.scope.userId,
+          userId: ctx.scope.userId,
+          action: "PettyCashTopUp.create",
+          entityType: "PettyCashTopUp",
+          entityId: topUp.id,
+          after: {
+            floatId: float.id,
+            amount: parsedInput.amount.toString(),
+            topUpDate: parsedInput.topUpDate.toISOString(),
+            bankAccountId: sourceBank.id,
+            remarks: parsedInput.remarks,
+          },
         },
       });
     });
     revalidatePath("/petty-cash");
-    revalidatePath("/expenses");
+    revalidatePath("/banking");
     return { ok: true };
   });

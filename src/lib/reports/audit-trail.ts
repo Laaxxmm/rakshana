@@ -1,6 +1,7 @@
 import "server-only";
+import { fromZonedTime } from "date-fns-tz";
 import { prismaUnsafe } from "@/lib/db/prisma";
-import { formatIST } from "@/lib/format/date";
+import { formatIST, IST } from "@/lib/format/date";
 import type { ReportGenerator, ComputedReport, ValidationResult } from "./shared/types";
 import { buildReportWorkbook } from "./shared/excel-renderer";
 
@@ -19,9 +20,9 @@ import { buildReportWorkbook } from "./shared/excel-renderer";
 
 export type AuditTrailParams = {
   organisationId: string;
-  /** ISO date string for range start. Inclusive. */
+  /** YYYY-MM-DD (IST). Inclusive — the export opens at midnight on this day. */
   from: string;
-  /** ISO date string for range end. Exclusive. */
+  /** YYYY-MM-DD (IST). Inclusive — the whole of this day is in the export. */
   to: string;
   userId?: string;
   entityType?: string;
@@ -43,6 +44,38 @@ export type AuditTrailData = {
   filters: { from: string; to: string; userId?: string; entityType?: string; action?: string };
 };
 
+function istBoundary(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? fromZonedTime(`${value}T00:00:00`, IST)
+    : new Date(value);
+}
+
+/**
+ * The window a report's `from`/`to` pair names. Both ends are inclusive IST
+ * days: `start` is the midnight that opens `from`, `end` the midnight that
+ * opens `to` — the closing date the period label prints — and `endExclusive`
+ * the midnight 24 hours later that shuts the window, for `lt:` in a query.
+ * IST has no DST, so 24 hours from one IST midnight is always the next one,
+ * whatever timezone the server itself runs in.
+ *
+ * Anchoring to IST matters because the wizard collects these through
+ * `<input type="date">`, which submits a bare YYYY-MM-DD. `new Date()` reads
+ * those as UTC, which would put every boundary 5.5 hours late — a mutation
+ * logged in the small hours of 1 April would fall into the previous financial
+ * year's export while the donation it touched sat in the current one.
+ *
+ * Every report reading `from`/`to` shares this helper so one pair of dates
+ * means one window across all of them.
+ */
+export function istDayWindow(
+  from: string,
+  to: string,
+): { start: Date; end: Date; endExclusive: Date } {
+  const start = istBoundary(from);
+  const end = istBoundary(to);
+  return { start, end, endExclusive: new Date(end.getTime() + 86_400_000) };
+}
+
 export const auditTrailReport: ReportGenerator<AuditTrailParams, AuditTrailData> = {
   slug: "audit-trail",
   title: "Audit Trail Report",
@@ -54,8 +87,9 @@ export const auditTrailReport: ReportGenerator<AuditTrailParams, AuditTrailData>
     if (Number.isNaN(Date.parse(params.from)) || Number.isNaN(Date.parse(params.to))) {
       return { ok: false, errors: ["from and to must be valid ISO dates"] };
     }
-    if (new Date(params.from) >= new Date(params.to)) {
-      return { ok: false, errors: ["from must be before to"] };
+    // Both ends are inclusive, so a single-day export has from === to.
+    if (new Date(params.from) > new Date(params.to)) {
+      return { ok: false, errors: ["from must not be after to"] };
     }
     return { ok: true };
   },
@@ -63,13 +97,12 @@ export const auditTrailReport: ReportGenerator<AuditTrailParams, AuditTrailData>
   async computeData(
     params: AuditTrailParams,
   ): Promise<ComputedReport<AuditTrailData>> {
+    const { start, end, endExclusive } = istDayWindow(params.from, params.to);
+
     const rows = await prismaUnsafe.auditLog.findMany({
       where: {
         organisationId: params.organisationId,
-        createdAt: {
-          gte: new Date(params.from),
-          lt: new Date(params.to),
-        },
+        createdAt: { gte: start, lt: endExclusive },
         ...(params.userId ? { userId: params.userId } : {}),
         ...(params.entityType ? { entityType: params.entityType } : {}),
         ...(params.action ? { action: { contains: params.action } } : {}),
@@ -84,7 +117,7 @@ export const auditTrailReport: ReportGenerator<AuditTrailParams, AuditTrailData>
       type: "AUDIT_TRAIL",
       organisationId: params.organisationId,
       title: "Audit Trail Report",
-      periodLabel: `${formatIST(new Date(params.from), "dd MMM yyyy")} – ${formatIST(new Date(params.to), "dd MMM yyyy")}`,
+      periodLabel: `${formatIST(start, "dd MMM yyyy")} – ${formatIST(end, "dd MMM yyyy")}`,
       generatedAt: new Date().toISOString(),
       data: {
         rows: rows.map((r) => ({

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import { prisma } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
-import { formatIST, getCurrentFY } from "@/lib/format/date";
+import { daysUntil, formatIST, getCurrentFY } from "@/lib/format/date";
 import { NewAccumulationButton } from "./NewAccumulationButton";
 
 export const metadata: Metadata = { title: "Form 10 — Accumulation tracker" };
@@ -45,7 +45,7 @@ export default async function Form10Page() {
             Form 10 · Accumulation under Sec 11(2)
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-ink-muted">
-            Use Sec 11(2) accumulation when you can't apply 85% in the current
+            Use Sec 11(2) accumulation when you can’t apply 85% in the current
             FY. The accumulated amount must be applied within 5 years for the
             specific purpose declared in Form 10.
           </p>
@@ -75,9 +75,7 @@ export default async function Form10Page() {
                 </TableRow>
               )}
               {rows.map((a) => {
-                const daysLeft = Math.floor(
-                  (a.endDate.getTime() - Date.now()) / 86_400_000,
-                );
+                const daysLeft = daysUntil(a.endDate) ?? 0;
                 return (
                   <TableRow key={a.id}>
                     <TableCell className="font-mono text-xs">{a.financialYear}</TableCell>

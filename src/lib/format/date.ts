@@ -53,3 +53,18 @@ export function todayInIST(): Date {
 }
 
 export { format };
+
+/**
+ * Whole days from now until `date` — negative once it has passed.
+ *
+ * Lives here rather than inline in the compliance pages because three of them
+ * were each carrying their own copy of the same `/ 86_400_000`, and because
+ * reading the clock inside a component body trips `react-hooks/purity`.
+ */
+export function daysUntil(date: Date | string | null | undefined): number | null {
+  if (!date) return null;
+  const target = typeof date === "string" ? new Date(date) : date;
+  const ms = target.getTime();
+  if (Number.isNaN(ms)) return null;
+  return Math.floor((ms - Date.now()) / 86_400_000);
+}

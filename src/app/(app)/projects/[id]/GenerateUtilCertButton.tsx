@@ -127,7 +127,7 @@ export function GenerateUtilCertButton({
                 Certificate {result.certificateNumber} generated
               </p>
               <p className="mt-1 text-xs text-ink-muted">
-                Stored under the project's Reports tab. Download below or
+                Stored under the project’s Reports tab. Download below or
                 share the URL with the donor.
               </p>
             </div>
@@ -199,9 +199,9 @@ export function GenerateUtilCertButton({
                 </div>
               </div>
               <p className="text-xs text-ink-muted">
-                The certificate aggregates the donor's contributions and the
-                project's expenditure within this window, then computes the
-                donor's pro-rata share of utilisation.
+                The certificate aggregates the donor’s contributions and the
+                project’s expenditure within this window, then computes the
+                donor’s pro-rata share of utilisation.
               </p>
             </div>
             <DialogFooter>

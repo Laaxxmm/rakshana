@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -146,9 +147,9 @@ export function RecurringExpenseForm({
             {vendors.length === 0 ? (
               <p className="mt-1 text-xs text-ink-subtle">
                 No vendors yet — leave blank or{" "}
-                <a href="/vendors/new" className="text-primary hover:underline">
+                <Link href="/vendors/new" className="text-primary hover:underline">
                   add one
-                </a>
+                </Link>
                 .
               </p>
             ) : null}

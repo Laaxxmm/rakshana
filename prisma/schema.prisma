@@ -128,6 +128,7 @@ model Organisation {
   communications     Communication[]
   complianceItems    ComplianceItem[]
   sponsorshipItems   SponsorshipItem[]
+  paymentIntents     PaymentIntent[]
 
   @@index([status])
 }
@@ -514,6 +515,7 @@ model Donation {
   updatedAt          DateTime @updatedAt
 
   lineItems          DonationLineItem[]
+  paymentIntent      PaymentIntent?
 
   @@unique([organisationId, receiptNumber])
   @@index([organisationId, donationDate])
@@ -1698,6 +1700,7 @@ enum ReportStatus {
 model PaymentIntent {
   id                String   @id @default(cuid())
   organisationId    String
+  organisation      Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
 
   razorpayOrderId   String   @unique   // payment-link id (plink_…) or order id
   // Unique so a replayed webhook can never convert the same payment twice.
@@ -1711,7 +1714,12 @@ model PaymentIntent {
   donorEmail        String?
   purpose           DonationPurpose @default(GENERAL)
 
-  donationId        String?  // set once the payment is converted
+  // Set once the payment is converted. Unique because a captured payment
+  // mints exactly one donation — two intents pointing at the same receipt
+  // would mean a donor was charged twice for it. SetNull rather than Cascade
+  // so deleting a donation can never silently erase the payment record.
+  donationId        String?  @unique
+  donation          Donation? @relation(fields: [donationId], references: [id], onDelete: SetNull)
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

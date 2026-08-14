@@ -84,7 +84,7 @@ export function NewFilingButton({ suggestedFy }: { suggestedFy: string }) {
             <div>
               <Label htmlFor="rev">Mark as revision</Label>
               <p className="text-xs text-ink-muted">
-                Use when you've already filed once and need to correct it.
+                Use when you’ve already filed once and need to correct it.
               </p>
             </div>
             <Switch id="rev" checked={isRevision} onCheckedChange={setIsRevision} />

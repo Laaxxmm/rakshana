@@ -22,8 +22,8 @@ export default function ImportDonorsPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-muted">
           Upload a CSV exported from your existing system (Excel, Tally, an
-          older donor sheet). We'll validate every row, show you what looks
-          right and what doesn't, and only insert after you confirm.
+          older donor sheet). We’ll validate every row, show you what looks
+          right and what doesn’t, and only insert after you confirm.
         </p>
       </header>
 

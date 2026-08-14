@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { formatINRWithSymbol } from "@/lib/format/inr";
-import { formatIST, getCurrentFY } from "@/lib/format/date";
+import { daysUntil, formatIST, getCurrentFY } from "@/lib/format/date";
 import { computeEightyFiveRule } from "@/lib/compliance/eighty-five-rule";
 import { HubNav } from "@/components/shell/HubNav";
 
@@ -26,14 +26,6 @@ export default async function IncomeTaxIndex() {
 
   const currentFy = getCurrentFY();
   const rule = await computeEightyFiveRule({ organisationId, financialYear: currentFy });
-
-  // Days until 12A / 80G expiry — Phase 1 already tracks via ComplianceItem,
-  // here we just render the headline.
-  const daysUntil = (d: Date | null) => {
-    if (!d) return null;
-    const ms = d.getTime() - Date.now();
-    return Math.floor(ms / 86_400_000);
-  };
 
   return (
     <div className="space-y-5">

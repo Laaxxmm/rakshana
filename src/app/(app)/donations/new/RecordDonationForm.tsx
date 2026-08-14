@@ -168,28 +168,29 @@ export function RecordDonationForm({
   // ----- Donor combobox state -----
   const [donor, setDonor] = React.useState<Donor | null>(initialDonor);
   const [donorQuery, setDonorQuery] = React.useState("");
-  const [donorResults, setDonorResults] = React.useState<Donor[]>([]);
   const [donorOpen, setDonorOpen] = React.useState(false);
   const search = useAction(searchDonors);
+  // Derived from the search result rather than mirrored into state — a
+  // copy kept in sync by an effect just renders twice and can lag behind
+  // the query that produced it.
+  const donorResults: Donor[] =
+    donorQuery.trim().length < 2 || !search.result?.data?.ok
+      ? []
+      : Array.isArray(search.result.data.donors)
+        ? (search.result.data.donors as Donor[])
+        : [];
   const searchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function onDonorQuery(q: string) {
     setDonorQuery(q);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (q.trim().length < 2) {
-      setDonorResults([]);
       return;
     }
     searchTimer.current = setTimeout(() => {
       search.execute({ q });
     }, 200);
   }
-
-  React.useEffect(() => {
-    if (search.result?.data?.ok && Array.isArray(search.result.data.donors)) {
-      setDonorResults(search.result.data.donors as Donor[]);
-    }
-  }, [search.result]);
 
   // ----- Quick-create panel -----
   const [quickOpen, setQuickOpen] = React.useState(false);

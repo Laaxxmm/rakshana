@@ -14,7 +14,7 @@ import {
 import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { formatINRWithSymbol } from "@/lib/format/inr";
-import { formatIST, getCurrentFY } from "@/lib/format/date";
+import { daysUntil, formatIST, getCurrentFY } from "@/lib/format/date";
 import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "TDS — Rakshana" };
@@ -191,7 +191,7 @@ export default async function TdsIndex() {
             <h3 className="text-sm font-semibold text-ink">Active LDC certificates</h3>
             <ul className="mt-3 space-y-2 text-sm">
               {ldcs.map((l) => {
-                const days = Math.floor((l.validTo.getTime() - Date.now()) / 86_400_000);
+                const days = daysUntil(l.validTo) ?? 0;
                 return (
                   <li key={l.id} className="flex items-center justify-between">
                     <span>

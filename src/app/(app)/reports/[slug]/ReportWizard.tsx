@@ -124,7 +124,7 @@ export function ReportWizard({
             <h3 className="text-sm font-semibold text-ink">Downloads</h3>
             <p className="text-xs text-ink-muted">
               Files are stored under your audit trail. Find them under
-              "Recent reports" on the index page anytime.
+              “Recent reports” on the index page anytime.
             </p>
             <div className="flex flex-wrap gap-2">
               {result.excelUrl ? (

@@ -7,8 +7,14 @@ import { Button } from "@/components/ui/button";
 
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => setMounted(true), []);
+  // The server has no idea which theme is resolved, so the icon has to wait
+  // for hydration. useSyncExternalStore answers "am I on the client yet"
+  // without a state-write inside an effect, which costs an extra render pass.
+  const mounted = React.useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   if (!mounted) {
     return (
       <Button variant="ghost" size="icon" aria-label="Toggle theme" disabled>

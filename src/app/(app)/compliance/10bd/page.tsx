@@ -87,7 +87,7 @@ export default async function Form10BDIndex() {
               {filings.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center text-sm text-ink-muted py-10">
-                    No 10BD filings yet. Click "New filing" to start preparing one
+                    No 10BD filings yet. Click “New filing” to start preparing one
                     for FY {previousFy}.
                   </TableCell>
                 </TableRow>

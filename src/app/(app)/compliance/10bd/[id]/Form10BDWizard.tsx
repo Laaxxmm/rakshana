@@ -430,7 +430,7 @@ export function Form10BDWizard({
           </li>
           <li>Navigate to e-File → Income Tax Forms → File Income Tax Forms</li>
           <li>Select Form 10BD for FY {filing.financialYear}</li>
-          <li>Upload the no-header CSV (the "Portal CSV" above)</li>
+          <li>Upload the no-header CSV (the “Portal CSV” above)</li>
           <li>Verify line counts and totals on the portal preview</li>
           <li>Submit and note down the Acknowledgement Number (ARN)</li>
         </ol>

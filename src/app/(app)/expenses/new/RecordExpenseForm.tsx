@@ -100,26 +100,27 @@ export function RecordExpenseForm({
   const [vendor, setVendor] = React.useState<Vendor | null>(initialVendor);
   const [cashPayee, setCashPayee] = React.useState("");
   const [vendorQuery, setVendorQuery] = React.useState("");
-  const [vendorResults, setVendorResults] = React.useState<Vendor[]>([]);
   const [vendorOpen, setVendorOpen] = React.useState(false);
   const search = useAction(searchVendors);
+  // Derived from the search result rather than mirrored into state — a
+  // copy kept in sync by an effect just renders twice and can lag behind
+  // the query that produced it.
+  const vendorResults: Vendor[] =
+    vendorQuery.trim().length < 2 || !search.result?.data?.ok
+      ? []
+      : Array.isArray(search.result.data.vendors)
+        ? (search.result.data.vendors as Vendor[])
+        : [];
   const searchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function onVendorQuery(q: string) {
     setVendorQuery(q);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (q.trim().length < 2) {
-      setVendorResults([]);
       return;
     }
     searchTimer.current = setTimeout(() => search.execute({ q }), 200);
   }
-
-  React.useEffect(() => {
-    if (search.result?.data?.ok && Array.isArray(search.result.data.vendors)) {
-      setVendorResults(search.result.data.vendors as Vendor[]);
-    }
-  }, [search.result]);
 
   // ----- Form fields -----
   const [expenseDate, setExpenseDate] = React.useState(todayIso());
@@ -132,8 +133,13 @@ export function RecordExpenseForm({
   const [gstRate, setGstRate] = React.useState<number>(18);
   const [itcEligible, setItcEligible] = React.useState(true);
 
-  const [tdsApplicable, setTdsApplicable] = React.useState(false);
-  const [tdsSection, setTdsSection] = React.useState<string>("");
+  // Seeded from the vendor the form opened with, and re-seeded in the vendor
+  // picker below. Both used to run through an effect that wrote state on every
+  // vendor change, which re-rendered the whole form an extra time.
+  const [tdsApplicable, setTdsApplicable] = React.useState(!!initialVendor?.defaultTdsSection);
+  const [tdsSection, setTdsSection] = React.useState<string>(
+    initialVendor?.defaultTdsSection ?? "",
+  );
 
   const [mode, setMode] = React.useState<(typeof PAYMENT_MODES)[number]>("NEFT");
   const [paymentRef, setPaymentRef] = React.useState("");
@@ -158,14 +164,6 @@ export function RecordExpenseForm({
     if (Object.keys(next).some((f) => ADVANCED_FIELDS.has(f))) setMoreOpen(true);
   }
 
-  // ----- Auto-suggest TDS section from vendor default -----
-  React.useEffect(() => {
-    if (vendor?.defaultTdsSection && !tdsSection) {
-      setTdsSection(vendor.defaultTdsSection);
-      setTdsApplicable(true);
-    }
-  }, [vendor, tdsSection]);
-
   // ----- Live derived amounts -----
   const tdsMeta = tdsSection ? TDS_SECTIONS[tdsSection as keyof typeof TDS_SECTIONS] : null;
   const tdsRate = tdsApplicable && tdsMeta?.defaultRate !== null && tdsMeta?.defaultRate !== undefined
@@ -182,12 +180,6 @@ export function RecordExpenseForm({
 
   // ----- Category-driven defaults -----
   const selectedCategory = categories.find((c) => c.id === categoryId);
-  React.useEffect(() => {
-    if (selectedCategory) {
-      setItcEligible(selectedCategory.defaultItcEligible);
-    }
-  }, [selectedCategory]);
-
   const projectRequired = !!selectedCategory?.requiresProject;
   const billRequired = gross > Number(billRequiredThreshold);
 
@@ -347,6 +339,12 @@ export function RecordExpenseForm({
                               setVendor(v);
                               setVendorOpen(false);
                               setVendorQuery("");
+                              // Suggestion, not a lock — the user can still
+                              // clear it in the advanced panel.
+                              if (v.defaultTdsSection && !tdsSection) {
+                                setTdsSection(v.defaultTdsSection);
+                                setTdsApplicable(true);
+                              }
                             }}
                             className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
                           >
@@ -437,7 +435,17 @@ export function RecordExpenseForm({
 
           <div>
             <Label className="text-xs">Category</Label>
-            <Select value={categoryId} onValueChange={(v) => v && setCategoryId(v)}>
+            <Select
+              value={categoryId}
+              onValueChange={(v) => {
+                if (!v) return;
+                setCategoryId(v);
+                // ITC eligibility follows the category unless the user
+                // overrides it afterwards.
+                const picked = categories.find((c) => c.id === v);
+                if (picked) setItcEligible(picked.defaultItcEligible);
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Pick a category…" />
               </SelectTrigger>

@@ -5,6 +5,7 @@ import {
   parseISTInput,
   getFinancialYear,
   getFinancialYearRange,
+  daysUntil,
 } from "./date";
 
 describe("formatIST — UTC → IST formatting", () => {
@@ -58,5 +59,15 @@ describe("getFinancialYearRange", () => {
   it("rejects malformed FY strings", () => {
     expect(() => getFinancialYearRange("2025")).toThrow();
     expect(() => getFinancialYearRange("2025-2026")).toThrow();
+  });
+});
+
+describe("daysUntil", () => {
+  it("counts forward, backward, and refuses junk", () => {
+    const day = 86_400_000;
+    expect(daysUntil(new Date(Date.now() + 3 * day + 1000))).toBe(3);
+    expect(daysUntil(new Date(Date.now() - 2 * day + 1000))).toBe(-2);
+    expect(daysUntil(null)).toBeNull();
+    expect(daysUntil(new Date("not a date"))).toBeNull();
   });
 });

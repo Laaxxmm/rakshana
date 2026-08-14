@@ -73,7 +73,7 @@ export default async function CalendarPage() {
           <CardContent className="space-y-2 p-6 text-center text-sm text-ink-muted">
             <p>No upcoming items.</p>
             <p>
-              Click "Refresh calendar" to generate the next 12 months of recurring
+              Click “Refresh calendar” to generate the next 12 months of recurring
               filings.
             </p>
           </CardContent>

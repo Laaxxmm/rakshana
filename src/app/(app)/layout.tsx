@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { Sidebar } from "@/components/shell/Sidebar";
+import { MobileNav, Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
 
 /**
@@ -17,10 +17,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   if (!session?.user) redirect("/login");
 
   return (
-    // The whole app sits inside one rounded surface floating on the canvas,
-    // so the page reads as a single object rather than stacked panels.
-    <div className="flex min-h-dvh gap-0 bg-canvas p-3 sm:p-4">
-      <div className="flex flex-1 overflow-hidden rounded-[22px] bg-surface shadow-[var(--shadow-md)]">
+    // From the tablet breakpoint up the app sits inside one rounded surface
+    // floating on the canvas, so the page reads as a single object rather than
+    // stacked panels. A phone gets the surface edge to edge: the inset, the
+    // corners and the shadow cost about 30px of a 375px screen and show
+    // nothing, since there is no canvas left around them to float on.
+    <div className="flex min-h-dvh gap-0 bg-canvas md:p-4">
+      <div className="flex flex-1 overflow-hidden bg-surface md:rounded-[22px] md:shadow-[var(--shadow-md)]">
         <Sidebar organisationName={session.user.organisationName} />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
@@ -29,10 +32,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             (max-w-5xl here, 6xl there), so switching tabs inside a hub made
             the page visibly jump. `scrollbar-gutter` reserves the scrollbar
             lane so a short page is not wider than a long one either.
+
+            The bottom padding on a phone clears the fixed nav bar, which
+            floats over the scroller and would otherwise sit on the last row.
           */}
-          <main className="flex-1 overflow-y-auto px-8 pb-10 pt-2 [scrollbar-gutter:stable]">
+          <main className="flex-1 overflow-y-auto px-4 pb-24 pt-2 md:px-8 md:pb-10 [scrollbar-gutter:stable]">
             <div className="mx-auto w-full max-w-6xl">{children}</div>
           </main>
+          <MobileNav />
         </div>
       </div>
     </div>

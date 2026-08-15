@@ -27,6 +27,13 @@ const PRESETS = [
  * the reader already is. They are native `<input type="date">` — a calendar
  * that works with the keyboard, without a picker library.
  *
+ * Every choice stays on screen at every width. On a phone the four presets
+ * become a two-by-two grid and the custom range takes the line below it, so
+ * which window is on is still readable off the highlighted button — a
+ * dropdown would fit, but it would hide the one thing this control exists to
+ * say. Above `sm` the grid dissolves (`sm:contents`) and the presets are back
+ * in the same wrapping row as the form.
+ *
  * `keep` carries a screen's other filters (the expense `status`, say) through
  * a period change; anything empty is dropped. `open`, deliberately, is not
  * carried: changing the period closes an open row's drawer.
@@ -48,33 +55,39 @@ export function DateRangeFilter({
     `${basePath}?${new URLSearchParams([["period", period], ...carried]).toString()}`;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
-      {PRESETS.map((preset) => {
-        const active = preset.period === range.preset;
-        return (
-          <Link
-            key={preset.period}
-            href={presetHref(preset.period)}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "rounded-[10px] border px-3 py-1.5 text-sm transition-colors",
-              active
-                ? "border-transparent bg-primary-soft font-medium text-primary"
-                : "border-border text-ink-muted hover:bg-surface-sunken hover:text-ink",
-            )}
-          >
-            {preset.label}
-          </Link>
-        );
-      })}
+    <div className="space-y-2 sm:flex sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-3 sm:space-y-0">
+      <div className="grid grid-cols-2 gap-2 sm:contents">
+        {PRESETS.map((preset) => {
+          const active = preset.period === range.preset;
+          return (
+            <Link
+              key={preset.period}
+              href={presetHref(preset.period)}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "rounded-[10px] border px-3 py-1.5 text-center text-sm transition-colors",
+                active
+                  ? "border-transparent bg-primary-soft font-medium text-primary"
+                  : "border-border text-ink-muted hover:bg-surface-sunken hover:text-ink",
+              )}
+            >
+              {preset.label}
+            </Link>
+          );
+        })}
+      </div>
 
       {/* Keyed on the window so the inputs are remounted by a period change:
           an uncontrolled input the reader has already touched would otherwise
-          keep showing the days it was left on. */}
+          keep showing the days it was left on.
+
+          The three grid columns are from / "to" / to, with Apply spanning
+          them underneath; the hidden inputs are `display:none` and take no
+          cell of their own. */}
       <form
         key={`${range.from}..${range.to}`}
         action={basePath}
-        className="flex flex-wrap items-center gap-2 sm:ml-2"
+        className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:ml-2 sm:flex sm:flex-wrap"
       >
         <input type="hidden" name="period" value="custom" />
         {carried.map(([name, value]) => (
@@ -85,7 +98,7 @@ export function DateRangeFilter({
           name="from"
           defaultValue={range.from}
           aria-label="From date"
-          className="w-[9.5rem]"
+          className="w-full sm:w-[9.5rem]"
         />
         <span className="text-sm text-ink-subtle">to</span>
         <Input
@@ -93,9 +106,15 @@ export function DateRangeFilter({
           name="to"
           defaultValue={range.to}
           aria-label="To date"
-          className="w-[9.5rem]"
+          className="w-full sm:w-[9.5rem]"
         />
-        <button type="submit" className={buttonVariants({ variant: "outline" })}>
+        <button
+          type="submit"
+          className={cn(
+            buttonVariants({ variant: "outline" }),
+            "col-span-3 w-full sm:col-auto sm:w-auto",
+          )}
+        >
           Apply
         </button>
       </form>

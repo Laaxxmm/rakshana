@@ -79,7 +79,7 @@ export default async function BeneficiariesPage({
   return (
     <div className="space-y-5">
       <HubNav hub="programmes" />
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Programmes</p>
           <h1
@@ -135,14 +135,17 @@ export default async function BeneficiariesPage({
               </p>
             </div>
           ) : (
+            /* Below sm the name and what has been disbursed keep their
+               columns; the code, the projects the person is enrolled in and a
+               status other than ACTIVE sit under the name. */
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Projects</TableHead>
+                  <TableHead className="hidden sm:table-cell">Code</TableHead>
+                  <TableHead className="hidden sm:table-cell">Projects</TableHead>
                   <TableHead className="text-right">Disbursements</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="hidden sm:table-cell">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -151,29 +154,38 @@ export default async function BeneficiariesPage({
                     (acc, d) => acc.plus(d.value.toString()),
                     new Decimal(0),
                   );
+                  const projects =
+                    (b.enrolments
+                      .slice(0, 2)
+                      .map((en) => en.project?.name)
+                      .filter(Boolean)
+                      .join(", ") || "—") +
+                    (b.enrolments.length > 2 ? ` +${b.enrolments.length - 2}` : "");
                   return (
                     <TableRow key={b.id} className="hover:bg-primary-soft/30">
-                      <TableCell className="text-sm">
+                      <TableCell className="whitespace-normal text-sm">
                         <Link
                           href={`/beneficiaries/${b.id}`}
                           className="font-medium hover:underline"
                         >
                           {b.name}
                         </Link>
+                        <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs text-ink-muted sm:hidden">
+                          <span className="font-mono">{b.code ?? "—"}</span>
+                          <span>{projects}</span>
+                          {b.status === "ACTIVE" ? null : (
+                            <span className="text-ink">{b.status}</span>
+                          )}
+                        </span>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{b.code ?? "—"}</TableCell>
-                      <TableCell className="text-xs">
-                        {b.enrolments
-                          .slice(0, 2)
-                          .map((en) => en.project?.name)
-                          .filter(Boolean)
-                          .join(", ") || "—"}
-                        {b.enrolments.length > 2 ? ` +${b.enrolments.length - 2}` : ""}
+                      <TableCell className="hidden font-mono text-xs sm:table-cell">
+                        {b.code ?? "—"}
                       </TableCell>
+                      <TableCell className="hidden text-xs sm:table-cell">{projects}</TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {formatINRWithSymbol(total, { paise: true })}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <Badge variant="outline" className="text-[10px]">
                           {b.status}
                         </Badge>

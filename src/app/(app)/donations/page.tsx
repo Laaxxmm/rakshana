@@ -95,7 +95,7 @@ export default async function DonationsPage({
   return (
     <div className="space-y-5">
       <HubNav hub="moneyIn" />
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Fundraising</p>
           <h1
@@ -104,7 +104,7 @@ export default async function DonationsPage({
             Donations
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/donations/collect"
             className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-ink hover:bg-muted"
@@ -156,65 +156,89 @@ export default async function DonationsPage({
               </p>
             </div>
           ) : (
+            /* Below sm only the donor and the amount keep a column of their
+               own; the receipt, the date and an unusual status move under the
+               donor's name, and the rest wait for a wider screen. A volunteer
+               looking a donation up in front of the donor is matching a name
+               to a figure, then reading back the receipt. */
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Receipt</TableHead>
+                  <TableHead className="hidden sm:table-cell">Date</TableHead>
+                  <TableHead className="hidden sm:table-cell">Receipt</TableHead>
                   <TableHead>Donor</TableHead>
-                  <TableHead>PAN</TableHead>
-                  <TableHead>Mode</TableHead>
+                  <TableHead className="hidden sm:table-cell">PAN</TableHead>
+                  <TableHead className="hidden sm:table-cell">Mode</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>80G</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="hidden sm:table-cell">80G</TableHead>
+                  <TableHead className="hidden sm:table-cell">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {donations.map((d) => (
-                  <TableRow key={d.id} className="hover:bg-primary-soft/30">
-                    <TableCell className="text-xs">{formatIST(d.donationDate)}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      <Link
-                        href={`/donations?${listQuery}&open=${d.id}`}
-                        className="hover:underline"
-                      >
-                        {d.receiptNumber}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/donors/${d.donor.id}`}
-                        className="text-sm hover:underline"
-                      >
-                        {d.donor.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {d.donor.isAnonymousBucket || !d.donor.pan ? "—" : d.donor.pan}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px]">
-                        {d.mode}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatINRWithSymbol(d.amount.toString(), { paise: true })}
-                    </TableCell>
-                    <TableCell>{d.is80GEligible ? "✓" : "—"}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          d.status === "RECEIVED" || d.status === "REALISED"
-                            ? "default"
-                            : "outline"
-                        }
-                        className="text-[10px]"
-                      >
-                        {d.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {donations.map((d) => {
+                  const date = formatIST(d.donationDate);
+                  const receipt = (
+                    <Link
+                      href={`/donations?${listQuery}&open=${d.id}`}
+                      className="hover:underline"
+                    >
+                      {d.receiptNumber}
+                    </Link>
+                  );
+                  // A donation that was received is what the reader expects;
+                  // only a status that changes what the row means is worth a
+                  // line on a phone.
+                  const notable = d.status !== "RECEIVED" && d.status !== "REALISED";
+                  return (
+                    <TableRow key={d.id} className="hover:bg-primary-soft/30">
+                      <TableCell className="hidden text-xs sm:table-cell">{date}</TableCell>
+                      <TableCell className="hidden font-mono text-xs sm:table-cell">
+                        {receipt}
+                      </TableCell>
+                      <TableCell className="whitespace-normal">
+                        <Link
+                          href={`/donors/${d.donor.id}`}
+                          className="text-sm font-medium hover:underline"
+                        >
+                          {d.donor.name}
+                        </Link>
+                        <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs text-ink-muted sm:hidden">
+                          <span className="font-mono">{receipt}</span>
+                          <span>{date}</span>
+                          {notable ? (
+                            <span className="text-ink">{d.status.replace(/_/g, " ")}</span>
+                          ) : null}
+                        </span>
+                      </TableCell>
+                      <TableCell className="hidden font-mono text-xs sm:table-cell">
+                        {d.donor.isAnonymousBucket || !d.donor.pan ? "—" : d.donor.pan}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant="outline" className="text-[10px]">
+                          {d.mode}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatINRWithSymbol(d.amount.toString(), { paise: true })}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        {d.is80GEligible ? "✓" : "—"}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge
+                          variant={
+                            d.status === "RECEIVED" || d.status === "REALISED"
+                              ? "default"
+                              : "outline"
+                          }
+                          className="text-[10px]"
+                        >
+                          {d.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

@@ -84,15 +84,15 @@ export default async function DonorProfilePage({
         Back to donors
       </Link>
 
-      <header className="flex items-start justify-between gap-4">
-        <div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Donor</p>
           <h1
-            className="mt-1 font-display text-4xl text-ink"
+            className="mt-1 font-display text-2xl break-words text-ink sm:text-4xl"
           >
             {donor.name}
           </h1>
-          <p className="mt-1 flex items-center gap-2">
+          <p className="mt-1 flex flex-wrap items-center gap-2">
             <Badge variant="outline">{donor.donorType}</Badge>
             {donor.isAnonymousBucket ? <Badge>System bucket</Badge> : null}
             <Badge variant={donor.status === "ACTIVE" ? "default" : "outline"}>
@@ -103,11 +103,13 @@ export default async function DonorProfilePage({
             {donor.isCsrDonor ? <Badge variant="outline" className="text-[10px]">CSR</Badge> : null}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Full-width targets on a phone, where these two sit under the name
+            rather than beside it. */}
+        <div className="flex shrink-0 items-center gap-2">
           {canEdit ? (
             <Link
               href={`/donors/${id}/edit`}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface px-3 text-sm hover:bg-surface-sunken"
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface px-3 text-sm hover:bg-surface-sunken sm:h-9 sm:min-h-0 sm:flex-none"
             >
               <IconEdit size={14} />
               Edit
@@ -115,7 +117,7 @@ export default async function DonorProfilePage({
           ) : null}
           <Link
             href={`/donations/new?donorId=${id}`}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-[color:var(--primary-hover)]"
+            className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-[color:var(--primary-hover)] sm:h-9 sm:min-h-0 sm:flex-none"
           >
             <IconPlus size={14} />
             Record donation
@@ -123,7 +125,7 @@ export default async function DonorProfilePage({
         </div>
       </header>
 
-      <div className="grid gap-5 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-5">
         <KPI label="Lifetime" value={formatINRWithSymbol(lifetime, { paise: true })} mono />
         <KPI label="Donations" value={donationCount.toString()} mono />
         <KPI label="First" value={firstDate ? formatIST(firstDate) : "—"} />
@@ -131,7 +133,10 @@ export default async function DonorProfilePage({
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList>
+        {/* Three labels and their counts run past 375px. Wrapping keeps every
+            tab on screen — a strip that scrolls sideways hides the last one
+            behind a gesture nobody is told about. */}
+        <TabsList className="flex-wrap">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="donations">
             Donations
@@ -217,48 +222,84 @@ export default async function DonorProfilePage({
               {donations.length === 0 ? (
                 <p className="p-8 text-center text-sm text-ink-muted">No donations recorded yet.</p>
               ) : (
-                <Table>
-                  <TableHeader>
+                /*
+                  Below sm the table stops being one: every part of it lays
+                  out as a block, so a donation reads as a stack — receipt
+                  number, then the amount with its date and mode, then the
+                  three send buttons at full width. Columns cannot do that
+                  here. The buttons carry the address and the number they
+                  send to, which is most of a phone's width on its own, and
+                  cutting either to fit a column would hide the destination at
+                  the click that sends it.
+
+                  From sm up the same markup is the table it always was, with
+                  the date, mode, amount and status back in columns of their
+                  own and the stacked line hidden.
+                */
+                <Table className="max-sm:block">
+                  <TableHeader className="max-sm:hidden">
                     <TableRow>
                       <TableHead>Receipt</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Mode</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Date</TableHead>
+                      <TableHead className="hidden sm:table-cell">Mode</TableHead>
+                      <TableHead className="hidden text-right sm:table-cell">Amount</TableHead>
+                      <TableHead className="hidden sm:table-cell">Status</TableHead>
                       <TableHead>Receipt PDF</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
-                    {donations.map((d) => (
-                      <TableRow key={d.id}>
-                        <TableCell className="font-mono text-xs">{d.receiptNumber}</TableCell>
-                        <TableCell className="text-xs">{formatIST(d.donationDate)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-[10px]">
-                            {d.mode}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums">
-                          {formatINRWithSymbol(d.amount.toString(), { paise: true })}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={d.status === "RECEIVED" || d.status === "REALISED" ? "default" : "outline"}
-                            className="text-[10px]"
-                          >
-                            {d.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <DonationReceiptActions
-                            donationId={d.id}
-                            donorEmail={donor.email}
-                            donorWhatsApp={donor.whatsapp}
-                            canSend={canSend}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                  <TableBody className="max-sm:block">
+                    {donations.map((d) => {
+                      // RECEIVED and REALISED are what the reader expects; only
+                      // a status that changes what the row means is worth a
+                      // line on a phone.
+                      const notable = d.status !== "RECEIVED" && d.status !== "REALISED";
+                      return (
+                        <TableRow key={d.id} className="max-sm:block max-sm:px-2 max-sm:py-1">
+                          <TableCell className="align-top font-mono text-xs max-sm:block">
+                            {d.receiptNumber}
+                            <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs sm:hidden">
+                              <span className="text-sm tabular-nums text-ink">
+                                {formatINRWithSymbol(d.amount.toString(), { paise: true })}
+                              </span>
+                              <span className="font-sans text-ink-muted">
+                                {formatIST(d.donationDate)}
+                              </span>
+                              <span className="font-sans text-ink-muted">{d.mode}</span>
+                              {notable ? (
+                                <span className="font-sans text-ink">{d.status}</span>
+                              ) : null}
+                            </span>
+                          </TableCell>
+                          <TableCell className="hidden text-xs sm:table-cell">
+                            {formatIST(d.donationDate)}
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            <Badge variant="outline" className="text-[10px]">
+                              {d.mode}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="hidden text-right align-top font-mono tabular-nums sm:table-cell">
+                            {formatINRWithSymbol(d.amount.toString(), { paise: true })}
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            <Badge
+                              variant={d.status === "RECEIVED" || d.status === "REALISED" ? "default" : "outline"}
+                              className="text-[10px]"
+                            >
+                              {d.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="align-top max-sm:block">
+                            <DonationReceiptActions
+                              donationId={d.id}
+                              donorEmail={donor.email}
+                              donorWhatsApp={donor.whatsapp}
+                              canSend={canSend}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -302,11 +343,16 @@ export default async function DonorProfilePage({
 
 function KPI({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-md border border-border bg-surface p-4">
+    // Two per row on a phone. A lakh with paise is the widest thing that
+    // lands here, so the figure is a size smaller there and breaks rather
+    // than spills out of the box.
+    <div className="min-w-0 rounded-md border border-border bg-surface p-3 sm:p-4">
       <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">{label}</p>
       <p
         className={
-          mono ? "mt-2 font-mono tabular-nums text-lg text-ink" : "mt-2 text-lg text-ink"
+          mono
+            ? "mt-1.5 font-mono text-[15px] break-words tabular-nums text-ink sm:mt-2 sm:text-lg"
+            : "mt-1.5 text-[15px] break-words text-ink sm:mt-2 sm:text-lg"
         }
       >
         {value}

@@ -39,10 +39,11 @@ export function CollectForm({ disabled }: { disabled: boolean }) {
 
   return (
     <Card>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3 [&_input]:h-11 sm:[&_input]:h-8">
         <div>
           <Label className="text-xs">Amount (₹)</Label>
           <Input
+            type="text"
             inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
@@ -54,13 +55,16 @@ export function CollectForm({ disabled }: { disabled: boolean }) {
           <Input
             value={donorName}
             onChange={(e) => setDonorName(e.target.value)}
+            autoCapitalize="words"
             placeholder="Lakshmi Narayanan"
           />
         </div>
         <div>
           <Label className="text-xs">Phone</Label>
           <Input
+            type="tel"
             inputMode="tel"
+            autoComplete="tel"
             value={donorPhone}
             onChange={(e) => setDonorPhone(e.target.value)}
             placeholder="9876543210"
@@ -73,13 +77,15 @@ export function CollectForm({ disabled }: { disabled: boolean }) {
           <Input
             type="email"
             inputMode="email"
+            autoComplete="email"
+            autoCapitalize="off"
             value={donorEmail}
             onChange={(e) => setDonorEmail(e.target.value)}
             placeholder="donor@example.com"
           />
         </div>
         <Button
-          className="w-full"
+          className="h-11 w-full sm:h-8"
           disabled={disabled || create.isExecuting || !amount || !donorName || !donorPhone}
           onClick={() => create.execute({ amount, donorName, donorPhone, donorEmail })}
         >

@@ -3,7 +3,6 @@ import Link from "next/link";
 import { IconPlus, IconSearch } from "@tabler/icons-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -47,7 +46,7 @@ export default async function DonorsPage({
   return (
     <div className="space-y-6">
       <HubNav hub="moneyIn" />
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Fundraising</p>
           <h1
@@ -108,56 +107,69 @@ export default async function DonorsPage({
               </p>
             </div>
           ) : (
+            /* Below sm the name and the lifetime figure keep their columns,
+               with the last donation — and a status other than ACTIVE —
+               under the name. Type and PAN are profile facts: they belong to
+               the donor's own page, not to scanning this list on a phone. */
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>PAN</TableHead>
-                  <TableHead>Last donation</TableHead>
+                  <TableHead className="hidden sm:table-cell">Type</TableHead>
+                  <TableHead className="hidden sm:table-cell">PAN</TableHead>
+                  <TableHead className="hidden sm:table-cell">Last donation</TableHead>
                   <TableHead className="text-right">Lifetime</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="hidden sm:table-cell">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {donors.map((d) => (
-                  <TableRow key={d.id} className="hover:bg-primary-soft/30">
-                    <TableCell>
-                      <Link href={`/donors/${d.id}`} className="text-sm font-medium hover:underline">
-                        {d.name}
-                      </Link>
-                      {d.tags.length > 0 ? (
-                        <span className="ml-2 text-[10px] text-ink-subtle">
-                          {d.tags.slice(0, 2).join(" · ")}
-                          {d.tags.length > 2 ? ` · +${d.tags.length - 2}` : ""}
+                {donors.map((d) => {
+                  const lastDonation = d.lastDonationDate ? formatIST(d.lastDonationDate) : "—";
+                  return (
+                    <TableRow key={d.id} className="hover:bg-primary-soft/30">
+                      <TableCell className="whitespace-normal">
+                        <Link href={`/donors/${d.id}`} className="text-sm font-medium hover:underline">
+                          {d.name}
+                        </Link>
+                        {d.tags.length > 0 ? (
+                          <span className="ml-2 text-[10px] text-ink-subtle">
+                            {d.tags.slice(0, 2).join(" · ")}
+                            {d.tags.length > 2 ? ` · +${d.tags.length - 2}` : ""}
+                          </span>
+                        ) : null}
+                        <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs text-ink-muted sm:hidden">
+                          <span>Last {lastDonation}</span>
+                          {d.status === "ACTIVE" ? null : (
+                            <span className="text-ink">{d.status}</span>
+                          )}
                         </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px]">
-                        {d.donorType}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {d.isAnonymousBucket
-                        ? "—"
-                        : d.pan
-                          ? `${d.pan.slice(0, 5)}…${d.pan.slice(-1)}`
-                          : <span className="text-ink-subtle">no PAN</span>}
-                    </TableCell>
-                    <TableCell className="text-xs text-ink-muted">
-                      {d.lastDonationDate ? formatIST(d.lastDonationDate) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatINRWithSymbol(d.totalDonatedLifetime.toString(), { paise: true })}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={d.status === "ACTIVE" ? "default" : "outline"} className="text-[10px]">
-                        {d.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant="outline" className="text-[10px]">
+                          {d.donorType}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="hidden font-mono text-xs sm:table-cell">
+                        {d.isAnonymousBucket
+                          ? "—"
+                          : d.pan
+                            ? `${d.pan.slice(0, 5)}…${d.pan.slice(-1)}`
+                            : <span className="text-ink-subtle">no PAN</span>}
+                      </TableCell>
+                      <TableCell className="hidden text-xs text-ink-muted sm:table-cell">
+                        {lastDonation}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatINRWithSymbol(d.totalDonatedLifetime.toString(), { paise: true })}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant={d.status === "ACTIVE" ? "default" : "outline"} className="text-[10px]">
+                          {d.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

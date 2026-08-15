@@ -38,7 +38,9 @@ export function MemberRoleSelect({
       disabled={isExecuting}
       onValueChange={(next) => execute({ membershipId, role: next as OrgRole })}
     >
-      <SelectTrigger className="w-[190px]" aria-label="Role">
+      {/* Fills the row on a phone, where the member's name sits on the line
+          above it; back to a fixed column from `sm` up. */}
+      <SelectTrigger className="w-full sm:w-[190px]" aria-label="Role">
         {/* The item labels live in the popup, which is not mounted until it
             opens — the trigger renders the raw enum value without this. */}
         <SelectValue>{(v: string) => roleLabel(v)}</SelectValue>

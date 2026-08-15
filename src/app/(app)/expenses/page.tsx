@@ -119,7 +119,7 @@ export default async function ExpensesPage({
   return (
     <div className="space-y-5">
       <HubNav hub="moneyOut" />
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Accounting</p>
           <h1
@@ -171,63 +171,91 @@ export default async function ExpensesPage({
               </p>
             </div>
           ) : (
+            /* Below sm the payee and the gross keep their columns; the
+               voucher number, the date and the status ride under the payee.
+               An expense list is a queue — where a voucher has got to is the
+               fact that decides what the reader does next, so unlike the
+               donations list it keeps its status badge on a phone. TDS, net,
+               category and mode are voucher detail and wait for the drawer or
+               a wider screen. */
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Voucher</TableHead>
+                  <TableHead className="hidden sm:table-cell">Date</TableHead>
+                  <TableHead className="hidden sm:table-cell">Voucher</TableHead>
                   <TableHead>Vendor</TableHead>
-                  <TableHead>Category</TableHead>
+                  <TableHead className="hidden sm:table-cell">Category</TableHead>
                   <TableHead className="text-right">Gross</TableHead>
-                  <TableHead className="text-right">TDS</TableHead>
-                  <TableHead className="text-right">Net</TableHead>
-                  <TableHead>Mode</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="hidden text-right sm:table-cell">TDS</TableHead>
+                  <TableHead className="hidden text-right sm:table-cell">Net</TableHead>
+                  <TableHead className="hidden sm:table-cell">Mode</TableHead>
+                  <TableHead className="hidden sm:table-cell">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {expenses.map((e) => (
-                  <TableRow key={e.id} className="hover:bg-primary-soft/30">
-                    <TableCell className="text-xs">{formatIST(e.expenseDate)}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      <Link
-                        href={`/expenses?${listQuery}&open=${e.id}`}
-                        className="hover:underline"
-                      >
-                        {e.voucherNumber}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {e.vendor ? (
-                        <Link href={`/vendors/${e.vendor.id}`} className="hover:underline">
-                          {e.vendor.name}
-                        </Link>
-                      ) : (
-                        <span className="italic text-ink-subtle">{e.cashPayeeName ?? "—"}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs">{e.category?.name ?? "—"}</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatINRWithSymbol(e.grossAmount.toString(), { paise: true })}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {e.tdsAmount.isZero()
-                        ? "—"
-                        : formatINRWithSymbol(e.tdsAmount.toString(), { paise: true })}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatINRWithSymbol(e.netPayable.toString(), { paise: true })}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px]">
-                        {e.mode}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={e.status} />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {expenses.map((e) => {
+                  const date = formatIST(e.expenseDate);
+                  const voucher = (
+                    <Link
+                      href={`/expenses?${listQuery}&open=${e.id}`}
+                      className="hover:underline"
+                    >
+                      {e.voucherNumber}
+                    </Link>
+                  );
+                  return (
+                    <TableRow key={e.id} className="hover:bg-primary-soft/30">
+                      <TableCell className="hidden text-xs sm:table-cell">{date}</TableCell>
+                      <TableCell className="hidden font-mono text-xs sm:table-cell">
+                        {voucher}
+                      </TableCell>
+                      <TableCell className="whitespace-normal text-sm">
+                        {e.vendor ? (
+                          <Link
+                            href={`/vendors/${e.vendor.id}`}
+                            className="font-medium hover:underline"
+                          >
+                            {e.vendor.name}
+                          </Link>
+                        ) : (
+                          <span className="italic text-ink-subtle">{e.cashPayeeName ?? "—"}</span>
+                        )}
+                        {/* Plain text, not the badge: a badge is a nowrap pill
+                            and PENDING_APPROVAL in one is wider than a phone's
+                            share of the row, which drags the table sideways.
+                            The underscore goes with it — a space is where the
+                            line is allowed to break. */}
+                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-muted sm:hidden">
+                          <span className="font-mono">{voucher}</span>
+                          <span>{date}</span>
+                          <span className="text-ink">{e.status.replace(/_/g, " ")}</span>
+                        </span>
+                      </TableCell>
+                      <TableCell className="hidden text-xs sm:table-cell">
+                        {e.category?.name ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatINRWithSymbol(e.grossAmount.toString(), { paise: true })}
+                      </TableCell>
+                      <TableCell className="hidden text-right font-mono tabular-nums sm:table-cell">
+                        {e.tdsAmount.isZero()
+                          ? "—"
+                          : formatINRWithSymbol(e.tdsAmount.toString(), { paise: true })}
+                      </TableCell>
+                      <TableCell className="hidden text-right font-mono tabular-nums sm:table-cell">
+                        {formatINRWithSymbol(e.netPayable.toString(), { paise: true })}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant="outline" className="text-[10px]">
+                          {e.mode}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <StatusBadge status={e.status} />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -45,9 +46,20 @@ export const HUBS = {
 export function HubNav({ hub }: { hub: keyof typeof HUBS }) {
   const pathname = usePathname();
   const items = HUBS[hub];
+  const activeItem = React.useRef<HTMLAnchorElement>(null);
+
+  /*
+   * Six tabs do not fit across a phone, so the strip scrolls sideways — and
+   * the tab you are on can start off the right-hand edge, which reads as it
+   * having been dropped. Pull it into view instead. `nearest` vertically so
+   * this never scrolls the page itself, only the strip.
+   */
+  React.useEffect(() => {
+    activeItem.current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [pathname]);
 
   return (
-    <nav className="-mx-1 flex flex-wrap items-center gap-1 border-b border-border pb-3">
+    <nav className="-mx-1 flex items-center gap-1 overflow-x-auto border-b border-border pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {items.map((item) => {
         const active =
           "exact" in item && item.exact
@@ -56,10 +68,11 @@ export function HubNav({ hub }: { hub: keyof typeof HUBS }) {
         return (
           <Link
             key={item.href}
+            ref={active ? activeItem : undefined}
             href={item.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "rounded-[10px] px-3 py-1.5 text-sm transition-colors",
+              "inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-[10px] px-3 py-1.5 text-sm transition-colors md:min-h-0",
               active
                 ? "bg-primary-soft font-medium text-primary"
                 : "text-ink-muted hover:bg-surface-sunken hover:text-ink",

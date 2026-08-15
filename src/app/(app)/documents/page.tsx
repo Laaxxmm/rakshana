@@ -21,7 +21,7 @@ export default async function DocumentsPage() {
     <div className="space-y-5">
       <header>
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Audit</p>
-        <h1 className="mt-1 font-display text-3xl text-ink">Documents</h1>
+        <h1 className="mt-1 font-display text-2xl text-ink sm:text-3xl">Documents</h1>
         <p className="text-sm text-ink-muted">
           Every bill, 80G receipt and organisation paper, filed by month. {total}{" "}
           {total === 1 ? "document" : "documents"} in {months.length}{" "}

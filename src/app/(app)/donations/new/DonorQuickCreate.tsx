@@ -85,16 +85,16 @@ export function DonorQuickCreate({
   }
 
   return (
-    <div className="rounded-md border border-primary/30 bg-primary-soft/30 p-4 space-y-3">
+    <div className="rounded-md border border-primary/30 bg-primary-soft/30 p-3 space-y-3 sm:p-4">
       <p className="text-xs uppercase tracking-[0.16em] text-ink-subtle">Add donor</p>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <Label className="text-xs">Type</Label>
           <Select
             value={donorType}
             onValueChange={(v) => v && setDonorType(v as DonorTypeKey)}
           >
-            <SelectTrigger>
+            <SelectTrigger className="min-h-11 w-full sm:min-h-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -115,6 +115,8 @@ export function DonorQuickCreate({
             id="quick-donor-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            autoCapitalize="words"
+            className="h-11 sm:h-8"
             aria-invalid={!!errors.name}
             aria-describedby={errors.name ? "quick-donor-name-error" : undefined}
           />
@@ -132,7 +134,10 @@ export function DonorQuickCreate({
             onChange={(e) => setPan(e.target.value.toUpperCase())}
             placeholder="ABCDE1234F"
             maxLength={10}
-            className="font-mono uppercase"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            className="font-mono uppercase h-11 sm:h-8"
             aria-invalid={!!errors.pan}
             aria-describedby={errors.pan ? "quick-donor-pan-error" : undefined}
           />
@@ -144,21 +149,32 @@ export function DonorQuickCreate({
           </Label>
           <Input
             id="quick-donor-phone"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
+            className="h-11 sm:h-8"
             aria-invalid={!!errors.phone}
             aria-describedby={errors.phone ? "quick-donor-phone-error" : undefined}
           />
           <FieldError id="quick-donor-phone-error" msg={errors.phone} />
         </div>
       </div>
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-11 sm:h-7"
+          onClick={onCancel}
+        >
           Cancel
         </Button>
         <Button
           type="button"
           size="sm"
+          className="h-11 sm:h-7"
           disabled={submitting || name.trim().length === 0}
           onClick={submit}
         >

@@ -26,7 +26,7 @@ export default async function VolunteersPage() {
   return (
     <div className="space-y-5">
       <HubNav hub="programmes" />
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Programmes</p>
           <h1
@@ -59,37 +59,48 @@ export default async function VolunteersPage() {
               </p>
             </div>
           ) : (
+            /* Below sm this is a phone book: the name, the number under it,
+               and the hours logged on the right. Skills and the joining date
+               are on the volunteer's own page. */
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Skills</TableHead>
+                  <TableHead className="hidden sm:table-cell">Phone</TableHead>
+                  <TableHead className="hidden sm:table-cell">Skills</TableHead>
                   <TableHead className="text-right">Total hours</TableHead>
-                  <TableHead>Joined</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="hidden sm:table-cell">Joined</TableHead>
+                  <TableHead className="hidden sm:table-cell">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {volunteers.map((v) => (
                   <TableRow key={v.id} className="hover:bg-primary-soft/30">
-                    <TableCell className="text-sm">
+                    <TableCell className="whitespace-normal text-sm">
                       <Link href={`/volunteers/${v.id}`} className="font-medium hover:underline">
                         {v.name}
                       </Link>
+                      <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs text-ink-muted sm:hidden">
+                        <span className="font-mono">{v.phone ?? "—"}</span>
+                        {v.status === "ACTIVE" ? null : (
+                          <span className="text-ink">{v.status}</span>
+                        )}
+                      </span>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{v.phone ?? "—"}</TableCell>
-                    <TableCell className="text-xs">
+                    <TableCell className="hidden font-mono text-xs sm:table-cell">
+                      {v.phone ?? "—"}
+                    </TableCell>
+                    <TableCell className="hidden text-xs sm:table-cell">
                       {v.skills.slice(0, 2).join(", ")}
                       {v.skills.length > 2 ? ` +${v.skills.length - 2}` : ""}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {v.totalHours.toString()}
                     </TableCell>
-                    <TableCell className="text-xs text-ink-muted">
+                    <TableCell className="hidden text-xs text-ink-muted sm:table-cell">
                       {v.joinedOn ? formatIST(v.joinedOn) : "—"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <Badge variant="outline" className="text-[10px]">
                         {v.status}
                       </Badge>

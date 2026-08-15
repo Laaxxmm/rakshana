@@ -44,7 +44,7 @@ export default async function VendorsPage({
   return (
     <div className="space-y-6">
       <HubNav hub="moneyOut" />
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Accounting</p>
           <h1
@@ -93,43 +93,56 @@ export default async function VendorsPage({
               </p>
             </div>
           ) : (
+            /* Nothing on this screen is money, so below sm it becomes what it
+               already is — a list of names — with the town and the default
+               TDS section under each. The PAN belongs to the vendor's own
+               page: nobody reads one off a phone list. */
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>PAN</TableHead>
-                  <TableHead>Default TDS</TableHead>
-                  <TableHead>Location</TableHead>
+                  <TableHead className="hidden sm:table-cell">PAN</TableHead>
+                  <TableHead className="hidden sm:table-cell">Default TDS</TableHead>
+                  <TableHead className="hidden sm:table-cell">Location</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {vendors.map((v) => (
-                  <TableRow key={v.id} className="hover:bg-primary-soft/30">
-                    <TableCell>
-                      <Link
-                        href={`/vendors/${v.id}`}
-                        className="text-sm font-medium hover:underline"
-                      >
-                        {v.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {v.pan ?? <span className="text-ink-subtle">—</span>}
-                    </TableCell>
-                    <TableCell>
-                      {v.defaultTdsSection ? (
-                        <Badge variant="outline" className="font-mono text-[10px]">
-                          {v.defaultTdsSection}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-ink-subtle">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-ink-muted">
-                      {[v.city, v.state].filter(Boolean).join(", ") || "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {vendors.map((v) => {
+                  const location = [v.city, v.state].filter(Boolean).join(", ") || "—";
+                  return (
+                    <TableRow key={v.id} className="hover:bg-primary-soft/30">
+                      <TableCell className="whitespace-normal">
+                        <Link
+                          href={`/vendors/${v.id}`}
+                          className="text-sm font-medium hover:underline"
+                        >
+                          {v.name}
+                        </Link>
+                        <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs text-ink-muted sm:hidden">
+                          <span>{location}</span>
+                          {v.defaultTdsSection ? (
+                            <span className="font-mono">TDS {v.defaultTdsSection}</span>
+                          ) : null}
+                        </span>
+                      </TableCell>
+                      <TableCell className="hidden font-mono text-xs sm:table-cell">
+                        {v.pan ?? <span className="text-ink-subtle">—</span>}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        {v.defaultTdsSection ? (
+                          <Badge variant="outline" className="font-mono text-[10px]">
+                            {v.defaultTdsSection}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-ink-subtle">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden text-xs text-ink-muted sm:table-cell">
+                        {location}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

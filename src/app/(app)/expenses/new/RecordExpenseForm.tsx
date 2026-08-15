@@ -257,7 +257,7 @@ export function RecordExpenseForm({
     <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
       {/* Paid to */}
       <Card>
-        <CardContent className="space-y-3 p-5">
+        <CardContent className="space-y-3 p-4 sm:p-5">
           <Label className="text-xs">Paid to</Label>
           {vendor ? (
             <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-canvas p-3">
@@ -280,6 +280,7 @@ export function RecordExpenseForm({
                 type="button"
                 variant="ghost"
                 size="icon"
+                className="size-11 sm:size-8"
                 aria-label="Change vendor"
                 onClick={() => setVendor(null)}
               >
@@ -298,7 +299,9 @@ export function RecordExpenseForm({
                   value={vendorQuery}
                   onChange={(e) => onVendorQuery(e.target.value)}
                   onFocus={() => setVendorOpen(true)}
-                  className="pl-8"
+                  autoCapitalize="words"
+                  autoCorrect="off"
+                  className="h-11 pl-8 sm:h-9"
                 />
               </div>
               {vendorOpen && (vendorResults.length > 0 || vendorQuery.length >= 2) ? (
@@ -324,7 +327,7 @@ export function RecordExpenseForm({
                                 setTdsApplicable(true);
                               }
                             }}
-                            className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
+                            className="flex min-h-12 w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
                           >
                             <IconUser size={14} className="mt-0.5 shrink-0 text-ink-subtle" />
                             <div className="flex-1 min-w-0">
@@ -347,6 +350,8 @@ export function RecordExpenseForm({
                   placeholder="e.g. Chai shop on 80 ft Road"
                   value={cashPayee}
                   onChange={(e) => setCashPayee(e.target.value)}
+                  autoCapitalize="words"
+                  className="h-11 sm:h-8"
                 />
                 {cashPayee ? (
                   <p className="mt-1 text-[11px] text-[color:var(--warning)]">
@@ -362,17 +367,18 @@ export function RecordExpenseForm({
 
       {/* Amount + live summary + category */}
       <Card>
-        <CardContent className="space-y-4 p-5">
+        <CardContent className="space-y-4 p-4 sm:p-5">
           <div>
             <Label className="text-xs">Amount</Label>
             <div className="flex items-baseline gap-2">
               <span className="font-display text-3xl text-ink-subtle">₹</span>
               <Input
+                type="text"
                 inputMode="decimal"
                 placeholder="0"
                 value={grossAmount}
                 onChange={(e) => setGrossAmount(e.target.value)}
-                className="font-display text-3xl h-14 max-w-[260px]"
+                className="font-display text-3xl h-14 w-full sm:max-w-[260px]"
               />
             </div>
             {gross > 0 ? (
@@ -388,7 +394,7 @@ export function RecordExpenseForm({
           </div>
 
           {/* The gross/TDS/net line is the point of this screen — never collapsed */}
-          <div className="grid grid-cols-3 gap-3 rounded-md border border-border bg-surface-sunken/40 p-3 text-sm">
+          <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-surface-sunken/40 p-3 text-sm sm:grid-cols-3">
             <div>
               <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">Gross</p>
               <p className="font-mono">
@@ -403,7 +409,7 @@ export function RecordExpenseForm({
                 {tdsAmount > 0 ? `−${formatINRWithSymbol(String(tdsAmount), { paise: true })}` : "—"}
               </p>
             </div>
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">Net payable</p>
               <p className="font-display text-lg">
                 {gross > 0 ? formatINRWithSymbol(String(netPayable), { paise: true }) : "—"}
@@ -414,7 +420,9 @@ export function RecordExpenseForm({
           <div>
             <Label className="text-xs">Category</Label>
             <Select value={categoryId} onValueChange={(v) => v && setCategoryId(v)}>
-              <SelectTrigger className="w-full">
+              {/* The trigger's own `data-[size]` rule outranks a plain height
+                  class, so the touch target is set as a minimum. */}
+              <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                 <SelectValue placeholder="Pick a category…" />
               </SelectTrigger>
               <SelectContent>
@@ -434,7 +442,7 @@ export function RecordExpenseForm({
 
       {/* Supporting bills — audit wants every page of paper behind the payment */}
       <Card>
-        <CardContent className="space-y-3 p-5">
+        <CardContent className="space-y-3 p-4 sm:p-5">
           <FileUpload
             multiple
             label="Supporting bills"
@@ -466,6 +474,7 @@ export function RecordExpenseForm({
                     type="button"
                     variant="ghost"
                     size="icon"
+                    className="size-11 sm:size-8"
                     aria-label={`Remove ${file.name}`}
                     disabled={uploading}
                     onClick={() => setBills((prev) => prev.filter((_, j) => j !== i))}
@@ -481,26 +490,27 @@ export function RecordExpenseForm({
 
       {/* Everything else */}
       <Card>
-        <CardContent className="p-5">
+        <CardContent className="p-4 sm:p-5">
           <details
             open={moreOpen}
             onToggle={(e) => setMoreOpen(e.currentTarget.open)}
           >
-            <summary className="cursor-pointer text-sm text-ink">
+            <summary className="flex min-h-12 cursor-pointer flex-col justify-center text-sm text-ink sm:block">
               More options
-              <span className="ml-2 text-xs text-ink-subtle">
+              <span className="text-xs text-ink-subtle sm:ml-2">
                 date, project, TDS, payment, description
               </span>
             </summary>
 
             <div className="mt-4 space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <Label className="text-xs">Date</Label>
                   <Input
                     type="date"
                     value={expenseDate}
                     onChange={(e) => setExpenseDate(e.target.value)}
+                    className="h-11 w-full sm:h-8"
                   />
                   <FieldError msg={errors.expenseDate} />
                 </div>
@@ -510,7 +520,7 @@ export function RecordExpenseForm({
                     {projectRequired ? <span className="text-[color:var(--danger)]">*</span> : null}
                   </Label>
                   <Select value={projectId} onValueChange={(v) => v && setProjectId(v)}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                       <SelectValue placeholder="Pick a project…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -527,16 +537,16 @@ export function RecordExpenseForm({
 
               {/* TDS */}
               <div className="space-y-2 border-t border-border pt-4">
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
                   <Checkbox checked={tdsApplicable} onCheckedChange={(v) => setTdsApplicable(!!v)} />
                   TDS applicable
                 </label>
                 {tdsApplicable ? (
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <Label className="text-xs">Section</Label>
                       <Select value={tdsSection} onValueChange={(v) => v && setTdsSection(v)}>
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                           <SelectValue placeholder="Pick a section…" />
                         </SelectTrigger>
                         <SelectContent>
@@ -567,11 +577,11 @@ export function RecordExpenseForm({
 
               {/* Payment */}
               <div className="space-y-3 border-t border-border pt-4">
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <Label className="text-xs">Mode</Label>
                     <Select value={mode} onValueChange={(v) => v && setMode(v as typeof mode)}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -590,7 +600,9 @@ export function RecordExpenseForm({
                       <Input
                         value={paymentRef}
                         onChange={(e) => setPaymentRef(e.target.value)}
-                        className="font-mono"
+                        autoCapitalize="characters"
+                        autoCorrect="off"
+                        className="font-mono h-11 w-full sm:h-8"
                       />
                       <FieldError msg={errors.paymentRef} />
                     </div>
@@ -598,7 +610,7 @@ export function RecordExpenseForm({
                 </div>
                 {floats.length > 0 ? (
                   <div className="space-y-2 rounded-md border border-border bg-surface-sunken/40 p-3">
-                    <label className="flex items-center gap-2 text-sm">
+                    <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
                       <Checkbox checked={isPettyCash} onCheckedChange={(v) => setIsPettyCash(!!v)} />
                       Pay from petty cash
                     </label>
@@ -608,7 +620,7 @@ export function RecordExpenseForm({
                           value={pettyCashFloatId}
                           onValueChange={(v) => v && setPettyCashFloatId(v)}
                         >
-                          <SelectTrigger className="w-full">
+                          <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -629,7 +641,7 @@ export function RecordExpenseForm({
                   <div>
                     <Label className="text-xs">Bank account debited</Label>
                     <Select value={bankAccountId} onValueChange={(v) => v && setBankAccountId(v)}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -661,14 +673,27 @@ export function RecordExpenseForm({
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface p-3">
-        <p className="text-[11px] text-ink-subtle">
-          Voucher assigned on save
-          {bills.length > 0
-            ? ` · ${bills.length} bill${bills.length === 1 ? "" : "s"} attached`
-            : ""}
-        </p>
-        <Button type="submit" disabled={submit.isExecuting || uploading}>
+      {/* The bill list can run this form well past a phone screen, so the
+          submit follows the thumb. `env(safe-area-inset-bottom)` keeps it
+          clear of the home indicator. */}
+      <div className="sticky bottom-0 flex flex-col gap-2 rounded-md border border-border bg-surface p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between sm:pb-3">
+        <div className="min-w-0">
+          <p className="font-display text-lg text-ink sm:text-sm">
+            {gross > 0 ? formatINRWithSymbol(String(netPayable), { paise: true }) : "—"}
+            <span className="ml-2 text-xs text-ink-subtle">net payable</span>
+          </p>
+          <p className="text-[11px] text-ink-subtle">
+            Voucher assigned on save
+            {bills.length > 0
+              ? ` · ${bills.length} bill${bills.length === 1 ? "" : "s"} attached`
+              : ""}
+          </p>
+        </div>
+        <Button
+          type="submit"
+          className="h-11 w-full sm:h-8 sm:w-auto"
+          disabled={submit.isExecuting || uploading}
+        >
           {uploading ? "Attaching bills…" : submit.isExecuting ? "Saving…" : "Submit"}
         </Button>
       </div>

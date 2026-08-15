@@ -53,7 +53,7 @@ export default async function DocumentMonthPage({
 
       <header>
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Audit</p>
-        <h1 className="mt-1 font-display text-3xl text-ink">{monthLabel(month)}</h1>
+        <h1 className="mt-1 font-display text-2xl text-ink sm:text-3xl">{monthLabel(month)}</h1>
         <p className="text-sm text-ink-muted">
           {docs.length} {docs.length === 1 ? "document" : "documents"}
         </p>
@@ -72,20 +72,35 @@ export default async function DocumentMonthPage({
               <ul className="space-y-0.5">
                 {docs.map((d) => (
                   <li key={d.id}>
+                    {/*
+                      Two rows, one visible at a time. Below `lg` the row is
+                      the file: it hands the URL to whatever the phone opens
+                      PDFs with, which is full screen and has zoom, search and
+                      share — none of which a 375px iframe has. From `lg` up
+                      the row selects into the preview beside it instead.
+                    */}
+                    <a
+                      href={d.url}
+                      target="_blank"
+                      rel="noopener"
+                      className="flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-surface-sunken lg:hidden"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <DocLine doc={d} />
+                      </span>
+                      <IconExternalLink size={16} className="shrink-0 text-ink-subtle" />
+                    </a>
                     <Link
                       href={`/documents/${month}?doc=${encodeURIComponent(d.id)}`}
                       aria-current={d.id === selected?.id ? "true" : undefined}
                       className={cn(
-                        "block rounded-lg px-3 py-2 transition-colors",
+                        "hidden rounded-lg px-3 py-2 transition-colors lg:block",
                         d.id === selected?.id
                           ? "bg-primary-soft text-primary"
                           : "hover:bg-surface-sunken",
                       )}
                     >
-                      <p className="truncate text-sm font-medium text-ink">{d.title}</p>
-                      <p className="truncate text-xs text-ink-muted">
-                        {d.kind} · {formatIST(d.date)}
-                      </p>
+                      <DocLine doc={d} />
                     </Link>
                   </li>
                 ))}
@@ -100,9 +115,26 @@ export default async function DocumentMonthPage({
   );
 }
 
+/** Title over kind and date — the same two lines in both rows above. */
+function DocLine({ doc }: { doc: LibraryDoc }) {
+  return (
+    <>
+      <p className="truncate text-sm font-medium text-ink">{doc.title}</p>
+      <p className="truncate text-xs text-ink-muted">
+        {doc.kind} · {formatIST(doc.date)}
+      </p>
+    </>
+  );
+}
+
+/**
+ * The preview beside the list, from `lg` up only — below that the list rows
+ * open the file themselves, so nothing here is reachable and the iframe's
+ * `loading="lazy"` keeps a phone from spending the download on a hidden one.
+ */
 function DocumentPane({ doc }: { doc: LibraryDoc }) {
   return (
-    <Card>
+    <Card className="hidden lg:flex">
       <CardContent className="space-y-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -162,7 +194,7 @@ function Preview({ doc }: { doc: LibraryDoc }) {
       <img
         src={doc.url}
         alt={doc.title}
-        className="max-h-[640px] w-auto rounded-md border border-border"
+        className="max-h-[640px] w-auto max-w-full rounded-md border border-border"
       />
     );
   }
@@ -170,6 +202,7 @@ function Preview({ doc }: { doc: LibraryDoc }) {
     return (
       <iframe
         src={doc.url}
+        loading="lazy"
         className="h-[640px] w-full rounded-md border border-border bg-canvas"
         title={doc.title}
       />

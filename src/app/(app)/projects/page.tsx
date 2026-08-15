@@ -56,7 +56,7 @@ export default async function ProjectsPage({
   return (
     <div className="space-y-5">
       <HubNav hub="programmes" />
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Programmes</p>
           <h1
@@ -78,7 +78,7 @@ export default async function ProjectsPage({
         </Link>
       </header>
 
-      <div className="flex gap-2 text-xs">
+      <div className="flex flex-wrap gap-2 text-xs">
         {(["ALL", "PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"] as const).map((s) => (
           <Link
             key={s}
@@ -109,17 +109,22 @@ export default async function ProjectsPage({
               </p>
             </div>
           ) : (
+            /* Below sm a project is its name and what it has spent, with the
+               code, the status and the share of budget used underneath —
+               that percentage is the budget column and the utilisation bar
+               said in three characters. Manager and dates are planning facts
+               and wait for the project's own page. */
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Code</TableHead>
+                  <TableHead className="hidden sm:table-cell">Code</TableHead>
                   <TableHead>Name</TableHead>
-                  <TableHead>Manager</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead className="text-right">Budget</TableHead>
+                  <TableHead className="hidden sm:table-cell">Manager</TableHead>
+                  <TableHead className="hidden sm:table-cell">Status</TableHead>
+                  <TableHead className="hidden sm:table-cell">Period</TableHead>
+                  <TableHead className="hidden text-right sm:table-cell">Budget</TableHead>
                   <TableHead className="text-right">Spent</TableHead>
-                  <TableHead>Utilisation</TableHead>
+                  <TableHead className="hidden sm:table-cell">Utilisation</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -139,8 +144,10 @@ export default async function ProjectsPage({
                         : "bg-primary";
                   return (
                     <TableRow key={p.id} className="hover:bg-primary-soft/30">
-                      <TableCell className="font-mono text-xs">{p.code}</TableCell>
-                      <TableCell>
+                      <TableCell className="hidden font-mono text-xs sm:table-cell">
+                        {p.code}
+                      </TableCell>
+                      <TableCell className="whitespace-normal">
                         <Link href={`/projects/${p.id}`} className="text-sm font-medium hover:underline">
                           {p.name}
                         </Link>
@@ -154,24 +161,33 @@ export default async function ProjectsPage({
                             CSR
                           </Badge>
                         ) : null}
+                        <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-xs text-ink-muted sm:hidden">
+                          <span className="font-mono">{p.code}</span>
+                          {/* A space where the underscore was, so a long
+                              status can break instead of widening the row. */}
+                          <span>{p.status.replace(/_/g, " ")}</span>
+                          <span className="font-mono">{pct.toFixed(0)}% used</span>
+                        </span>
                       </TableCell>
-                      <TableCell className="text-xs">{p.manager?.name ?? "—"}</TableCell>
-                      <TableCell>
+                      <TableCell className="hidden text-xs sm:table-cell">
+                        {p.manager?.name ?? "—"}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <Badge variant="outline" className="text-[10px]">
                           {p.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-ink-muted">
+                      <TableCell className="hidden text-xs text-ink-muted sm:table-cell">
                         {p.startDate ? formatIST(p.startDate) : "—"}
                         {p.endDate ? ` → ${formatIST(p.endDate)}` : ""}
                       </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
+                      <TableCell className="hidden text-right font-mono tabular-nums sm:table-cell">
                         {formatINRWithSymbol(p.totalBudget.toString(), { paise: false })}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {formatINRWithSymbol(spent, { paise: false })}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <div className="flex items-center gap-2">
                           <div className="h-1.5 w-20 rounded-full bg-surface-sunken overflow-hidden">
                             <div className={`h-full ${tone}`} style={{ width: `${pct}%` }} />

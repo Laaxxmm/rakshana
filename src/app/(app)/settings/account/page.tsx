@@ -13,7 +13,7 @@ export default async function AccountSettingsPage() {
         <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">
           Settings · Account
         </p>
-        <h1 className="mt-1 font-display text-4xl text-ink">Your account</h1>
+        <h1 className="mt-1 font-display text-3xl text-ink sm:text-4xl">Your account</h1>
         <p className="mt-1 text-sm text-ink-muted">
           {scope.role} · {scope.organisationName}
         </p>

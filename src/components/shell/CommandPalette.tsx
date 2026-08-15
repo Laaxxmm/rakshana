@@ -121,14 +121,20 @@ export function CommandPalette() {
 
   return (
     <>
+      {/*
+        A phone has no ⌘K and no room for a 288px field, so the trigger
+        collapses to its icon at a thumb-sized 44px. The dialog it opens is the
+        same one either way.
+      */}
       <button
         type="button"
+        aria-label="Search"
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-ink-muted hover:bg-surface-sunken w-72"
+        className="flex h-11 w-11 items-center justify-center gap-2 rounded-md border border-border bg-surface text-sm text-ink-muted hover:bg-surface-sunken md:h-auto md:w-72 md:justify-start md:px-3 md:py-1.5"
       >
-        <IconSearch size={14} />
-        <span>Search Rakshana…</span>
-        <kbd className="ml-auto rounded border border-border bg-canvas px-1.5 py-0.5 text-[10px] font-mono">
+        <IconSearch size={18} className="shrink-0 md:size-3.5" />
+        <span className="hidden md:inline">Search Rakshana…</span>
+        <kbd className="ml-auto hidden rounded border border-border bg-canvas px-1.5 py-0.5 text-[10px] font-mono md:block">
           ⌘K
         </kbd>
       </button>

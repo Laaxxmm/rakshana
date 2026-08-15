@@ -117,6 +117,7 @@ export function CollectionPanel({
             />
             <Button
               variant="outline"
+              className="h-11 w-full sm:h-8 sm:w-auto"
               disabled={regen.isExecuting}
               onClick={() => regen.execute({ donationId: status.donationId })}
             >
@@ -141,7 +142,11 @@ export function CollectionPanel({
           </>
         ) : null}
 
-        <Button variant={status.state === "AWAITING" ? "default" : "secondary"} onClick={onReset}>
+        <Button
+          variant={status.state === "AWAITING" ? "default" : "secondary"}
+          className="h-11 w-full sm:h-8 sm:w-auto"
+          onClick={onReset}
+        >
           New collection
         </Button>
       </CardContent>
@@ -178,9 +183,10 @@ function AwaitingPayment({
         <p className="text-xs text-ink-subtle">UPI QR unavailable — share the link instead.</p>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="grid gap-2 sm:flex sm:flex-wrap">
         <Button
           variant="outline"
+          className="h-11 w-full sm:h-8 sm:w-auto"
           onClick={() => {
             void navigator.clipboard.writeText(collection.paymentUrl);
             toast.success("Link copied");
@@ -191,6 +197,7 @@ function AwaitingPayment({
         </Button>
         <Button
           variant="outline"
+          className="h-11 w-full sm:h-8 sm:w-auto"
           render={
             <a
               href={`https://wa.me/${collection.donorPhone.replace(/\D/g, "")}?text=${encodeURIComponent(shareText)}`}
@@ -210,7 +217,7 @@ function AwaitingPayment({
           title="Still not confirmed"
           detail="We stopped checking after five minutes. The link is still live — the receipt appears here whenever the payment clears."
           action={
-            <Button variant="outline" size="sm" onClick={onCheckAgain}>
+            <Button variant="outline" size="sm" className="h-11 sm:h-7" onClick={onCheckAgain}>
               <IconRefresh />
               Check again
             </Button>

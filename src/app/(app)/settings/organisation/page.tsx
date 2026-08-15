@@ -74,7 +74,7 @@ export default async function OrganisationProfilePage() {
           Settings · Organisation
         </p>
         <h1
-          className="mt-1 font-display text-4xl text-ink"
+          className="mt-1 font-display text-3xl text-ink sm:text-4xl"
         >
           {organisation.name}
         </h1>
@@ -101,7 +101,10 @@ export default async function OrganisationProfilePage() {
       </header>
 
       <Tabs defaultValue="identity">
-        <TabsList>
+        {/* Six tabs are three times a phone's width. Wrapping keeps all six
+            on screen; a strip that scrolls sideways hides the last ones
+            behind a gesture nobody is told about. */}
+        <TabsList className="flex-wrap">
           <TabsTrigger value="identity">
             <IconBuilding size={14} />
             Identity

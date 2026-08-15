@@ -100,9 +100,12 @@ export function DonationReceiptActions({
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      <div className="flex flex-wrap gap-2">
+      {/* One row on a desktop; one full-width target each on a phone, where a
+          wrapping row of three puts the last one in a 40px corner. */}
+      <div className="grid gap-2 sm:flex sm:flex-wrap">
         <Button
           variant="outline"
+          className="h-11 w-full justify-start sm:h-8 sm:w-auto sm:justify-center"
           onClick={() => download.execute({ donationId })}
           disabled={download.isExecuting}
         >
@@ -114,7 +117,7 @@ export function DonationReceiptActions({
           <>
             <Button
               variant={armed ? "default" : "outline"}
-              className="max-w-[16rem]"
+              className="h-11 w-full justify-start sm:h-8 sm:w-auto sm:max-w-[16rem] sm:justify-center"
               disabled={donorEmail === null || send.isExecuting}
               onClick={() => (armed ? send.execute({ donationId }) : setArmed(true))}
             >
@@ -134,7 +137,7 @@ export function DonationReceiptActions({
 
             <Button
               variant="outline"
-              className="max-w-[16rem]"
+              className="h-11 w-full justify-start sm:h-8 sm:w-auto sm:max-w-[16rem] sm:justify-center"
               disabled={donorWhatsApp === null || whatsapp.isExecuting}
               onClick={() => whatsapp.execute({ donationId })}
             >

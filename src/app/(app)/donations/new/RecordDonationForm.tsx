@@ -398,12 +398,12 @@ export function RecordDonationForm({
   return (
     <form onSubmit={handleSubmit} className="mx-auto max-w-2xl space-y-4">
       <Card>
-        <CardContent className="space-y-6 p-5">
+        <CardContent className="space-y-6 p-4 sm:p-5">
           {/* Donor */}
           <div className="space-y-2">
             <Label className="text-xs uppercase tracking-[0.16em] text-ink-subtle">Donor</Label>
             {isAnonymous ? (
-              <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-canvas p-3">
+              <div className="flex flex-col gap-3 rounded-md border border-border bg-canvas p-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="font-display text-lg">Anonymous Donations</p>
                   <p className="mt-1 text-xs text-ink-muted">
@@ -436,6 +436,7 @@ export function RecordDonationForm({
                   type="button"
                   variant="ghost"
                   size="icon"
+                  className="size-11 sm:size-8"
                   aria-label="Change donor"
                   onClick={() => setDonor(null)}
                 >
@@ -454,7 +455,9 @@ export function RecordDonationForm({
                     value={donorQuery}
                     onChange={(e) => onDonorQuery(e.target.value)}
                     onFocus={() => setDonorOpen(true)}
-                    className="pl-8"
+                    autoCapitalize="words"
+                    autoCorrect="off"
+                    className="h-11 pl-8 sm:h-9"
                   />
                 </div>
                 {donorOpen && (donorResults.length > 0 || donorQuery.length >= 2) ? (
@@ -474,7 +477,7 @@ export function RecordDonationForm({
                                 setDonorOpen(false);
                                 setDonorQuery("");
                               }}
-                              className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
+                              className="flex min-h-12 w-full items-start gap-2 px-3 py-2 text-left hover:bg-primary-soft/40"
                             >
                               <IconUser size={14} className="mt-0.5 shrink-0 text-ink-subtle" />
                               <div className="flex-1 min-w-0">
@@ -499,7 +502,7 @@ export function RecordDonationForm({
                           setDonorOpen(false);
                           setQuickName(donorQuery);
                         }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-primary hover:bg-primary-soft/40"
+                        className="flex min-h-12 w-full items-center gap-2 px-3 py-2 text-sm text-primary hover:bg-primary-soft/40"
                       >
                         <IconPlus size={14} />
                         Add new donor
@@ -554,12 +557,13 @@ export function RecordDonationForm({
               <span className="font-display text-3xl text-ink-subtle">₹</span>
               <Input
                 id="amount"
+                type="text"
                 inputMode="decimal"
                 placeholder="0"
                 value={amount}
                 readOnly={lines.length > 0}
                 onChange={(e) => setAmountStr(e.target.value)}
-                className={`font-display text-3xl h-14 max-w-[260px] ${
+                className={`font-display text-3xl h-14 w-full sm:max-w-[260px] ${
                   lines.length > 0 ? "bg-surface-sunken text-ink-muted" : ""
                 }`}
               />
@@ -585,11 +589,14 @@ export function RecordDonationForm({
         onToggle={(e) => setMoreOpen(e.currentTarget.open)}
         className="group rounded-md border border-border bg-surface"
       >
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <summary className="grid min-h-12 cursor-pointer list-none grid-cols-[1fr_auto] items-center gap-x-3 px-4 py-3 [&::-webkit-details-marker]:hidden sm:flex sm:justify-between">
           <span className="text-sm font-medium">More options</span>
-          <span className="flex items-center gap-2 text-xs text-ink-subtle">
+          <IconChevronDown
+            size={14}
+            className="text-ink-subtle transition-transform group-open:rotate-180 sm:order-last"
+          />
+          <span className="col-span-2 text-xs text-ink-subtle sm:col-auto sm:ml-auto">
             {collapsedSummary}
-            <IconChevronDown size={14} className="transition-transform group-open:rotate-180" />
           </span>
         </summary>
 
@@ -612,7 +619,7 @@ export function RecordDonationForm({
           {/* Date */}
           <div>
             <Label className="text-xs">Date</Label>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="mt-1 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
               {[
                 { label: "Today", value: todayIso() },
                 { label: "Yesterday", value: yesterdayIso() },
@@ -622,6 +629,7 @@ export function RecordDonationForm({
                   key={p.label}
                   type="button"
                   size="sm"
+                  className="h-11 w-full sm:h-7 sm:w-auto"
                   variant={donationDate === p.value ? "default" : "outline"}
                   onClick={() => setDonationDate(p.value)}
                 >
@@ -632,7 +640,7 @@ export function RecordDonationForm({
                 type="date"
                 value={donationDate}
                 onChange={(e) => setDonationDate(e.target.value)}
-                className="max-w-[180px]"
+                className="col-span-3 h-11 sm:h-8 sm:max-w-[180px]"
               />
             </div>
             <FieldError msg={fieldErrors.donationDate} />
@@ -641,12 +649,13 @@ export function RecordDonationForm({
           {/* Mode */}
           <div>
             <Label className="text-xs">Mode</Label>
-            <div className="mt-1 flex flex-wrap gap-2">
+            <div className="mt-1 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
               {COMMON_MODES.map((m) => (
                 <Button
                   key={m}
                   type="button"
                   size="sm"
+                  className="h-11 w-full sm:h-7 sm:w-auto"
                   variant={mode === m ? "default" : "outline"}
                   onClick={() => setMode(m)}
                 >
@@ -654,7 +663,9 @@ export function RecordDonationForm({
                 </Button>
               ))}
               <Select value={mode} onValueChange={(v) => v && setMode(v as typeof mode)}>
-                <SelectTrigger className="w-32">
+                {/* The trigger's own `data-[size]` rule outranks a plain
+                    height class, so the touch target is set as a minimum. */}
+                <SelectTrigger className="col-span-3 min-h-11 w-full sm:min-h-0 sm:w-32">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -682,7 +693,10 @@ export function RecordDonationForm({
                 }
                 value={paymentRef}
                 onChange={(e) => setPaymentRef(e.target.value)}
-                className="font-mono max-w-[280px]"
+                inputMode={mode === "CHEQUE" || mode === "DD" ? "numeric" : "text"}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                className="font-mono h-11 w-full sm:h-8 sm:max-w-[280px]"
               />
               <FieldError msg={fieldErrors.paymentRef} />
             </div>
@@ -702,7 +716,7 @@ export function RecordDonationForm({
               <div>
                 <Label className="text-xs">Valuation method</Label>
                 <Select value={inKindValuation} onValueChange={(v) => v && setInKindValuation(v)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -722,7 +736,7 @@ export function RecordDonationForm({
             <div>
               <Label className="text-xs">Bank account credited</Label>
               <Select value={effectiveBankId} onValueChange={(v) => v && setBankAccountId(v)}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                   <SelectValue placeholder="Select bank account…">
                     {(val) => {
                       const b = visibleBanks.find((x) => x.id === val);
@@ -752,12 +766,13 @@ export function RecordDonationForm({
           {/* Purpose */}
           <div>
             <Label className="text-xs">Purpose</Label>
-            <div className="mt-1 flex flex-wrap gap-2">
+            <div className="mt-1 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               {(["GENERAL", "CORPUS", "PROJECT_SPECIFIC", "CSR"] as const).map((p) => (
                 <Button
                   key={p}
                   type="button"
                   size="sm"
+                  className="h-11 w-full sm:h-7 sm:w-auto"
                   variant={purpose === p ? "default" : "outline"}
                   onClick={() => setPurpose(p)}
                 >
@@ -772,7 +787,7 @@ export function RecordDonationForm({
             <div>
               <Label className="text-xs">Project</Label>
               <Select value={projectId} onValueChange={(v) => v && setProjectId(v)}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="min-h-11 w-full sm:min-h-0">
                   <SelectValue placeholder="Select project…">
                     {(val) => {
                       const p = projects.find((x) => x.id === val);
@@ -806,9 +821,11 @@ export function RecordDonationForm({
             <div>
               <Label className="text-xs">CSR company CIN</Label>
               <Input
-                className="font-mono max-w-[280px]"
+                className="font-mono h-11 w-full sm:h-8 sm:max-w-[280px]"
                 value={csrCin}
                 onChange={(e) => setCsrCin(e.target.value.toUpperCase())}
+                autoCapitalize="characters"
+                autoCorrect="off"
                 placeholder="U85100KA2024NPL123456"
               />
               <FieldError msg={fieldErrors.csrCompanyCin} />
@@ -852,6 +869,7 @@ export function RecordDonationForm({
               type="button"
               variant="ghost"
               size="icon"
+              className="size-11 sm:size-8"
               aria-label="Dismiss receipt"
               onClick={() => setRecorded(null)}
             >
@@ -864,19 +882,33 @@ export function RecordDonationForm({
           <DonationReceiptActions donationId={recorded.donationId} />
           <Link
             href={`/donations?fy=${fy}&open=${recorded.donationId}`}
-            className="inline-block text-xs text-primary hover:underline"
+            className="inline-flex min-h-11 items-center text-xs text-primary hover:underline sm:min-h-0"
           >
             View donation
           </Link>
         </div>
       ) : null}
 
-      <div className="sticky bottom-0 flex items-center justify-between gap-2 rounded-md border border-border bg-surface p-3">
-        <p className="text-[11px] text-ink-subtle">
-          FY {fy} · {amountNum > 0 ? formatINRWithSymbol(amount, { paise: true }) : "—"} · receipt
-          assigned on save
-        </p>
-        <Button type="submit" disabled={submit.isExecuting}>
+      {/* The running total lives here rather than beside the catalogue: this
+          bar is the one thing on the screen that never scrolls away, and
+          `env(safe-area-inset-bottom)` keeps it clear of the home indicator. */}
+      <div className="sticky bottom-0 flex flex-col gap-2 rounded-md border border-border bg-surface p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between sm:pb-3">
+        <div className="min-w-0">
+          <p className="font-display text-lg text-ink sm:text-sm">
+            {amountNum > 0 ? formatINRWithSymbol(amount, { paise: true }) : "—"}
+            {lines.length > 0 ? (
+              <span className="ml-2 text-xs text-ink-subtle">
+                {lines.reduce((n, l) => n + l.quantity, 0)} items
+              </span>
+            ) : null}
+          </p>
+          <p className="text-[11px] text-ink-subtle">FY {fy} · receipt assigned on save</p>
+        </div>
+        <Button
+          type="submit"
+          className="h-11 w-full sm:h-8 sm:w-auto"
+          disabled={submit.isExecuting}
+        >
           {submit.isExecuting ? "Saving…" : "Save & generate receipt"}
         </Button>
       </div>
@@ -888,6 +920,10 @@ export function RecordDonationForm({
  * The trust's fixed menu. Tapping a row adds a line; the lines drive the
  * Amount field above, which is why every total here is Decimal maths and not
  * arithmetic on floats.
+ *
+ * A picked row carries its own quantity and line total, so the brochure is
+ * also the basket — a phone has no room for the same item twice, once in a
+ * catalogue and once in a list of what was picked from it.
  */
 function SponsorshipPicker({
   items,
@@ -912,8 +948,7 @@ function SponsorshipPicker({
     if (bucket) bucket.push(item);
     else categories.set(item.category, [item]);
   }
-  const byId = new Map(items.map((i) => [i.id, i]));
-  const pickedIds = new Set(lines.map((l) => l.itemId));
+  const byItemId = new Map(lines.map((l) => [l.itemId, l]));
 
   return (
     <div className="space-y-3">
@@ -923,48 +958,12 @@ function SponsorshipPicker({
           <button
             type="button"
             onClick={onClear}
-            className="text-[11px] text-primary hover:underline"
+            className="-mr-2 min-h-11 px-2 text-xs text-primary hover:underline sm:min-h-0 sm:py-0"
           >
             Clear items
           </button>
         ) : null}
       </div>
-
-      {lines.length > 0 ? (
-        <ul className="space-y-2 rounded-[14px] bg-surface-sunken p-2.5">
-          {lines.map((line) => {
-            const unitNoun = byId.get(line.itemId)?.unitNoun;
-            const allowsQuantity = byId.get(line.itemId)?.allowsQuantity ?? true;
-            return (
-              <li key={line.itemId} className="flex items-center gap-3">
-                <span className="min-w-0 flex-1 truncate text-sm text-ink">{line.label}</span>
-                {allowsQuantity ? (
-                  <QuantityStepper
-                    label={line.label}
-                    quantity={line.quantity}
-                    unitNoun={unitNoun}
-                    onChange={(q) => onQuantity(line.itemId, q)}
-                  />
-                ) : null}
-                <span className="w-24 shrink-0 text-right font-mono text-sm tabular-nums text-ink">
-                  {formatINRWithSymbol(new Decimal(line.unitAmount).times(line.quantity), {
-                    paise: false,
-                  })}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Remove ${line.label}`}
-                  onClick={() => onRemove(line.itemId)}
-                >
-                  <IconX size={14} />
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
 
       <div className="space-y-3">
         {[...categories].map(([category, categoryItems]) => (
@@ -972,25 +971,72 @@ function SponsorshipPicker({
             <p className="text-[11px] uppercase tracking-[0.14em] text-ink-subtle">
               {SPONSORSHIP_CATEGORY_LABELS[category] ?? category.replace(/_/g, " ")}
             </p>
-            <div className="grid gap-1.5 sm:grid-cols-2">
-              {categoryItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onAdd(item)}
-                  className={`flex items-center justify-between gap-3 rounded-[12px] px-3 py-2.5 text-left transition-colors ${
-                    pickedIds.has(item.id)
-                      ? "bg-primary-soft text-primary"
-                      : "bg-surface-sunken text-ink hover:bg-primary-soft hover:text-primary"
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
-                  <span className="shrink-0 font-mono text-xs tabular-nums">
-                    {formatINRWithSymbol(item.amount, { paise: false })}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <ul className="space-y-1.5 sm:grid sm:grid-cols-2 sm:gap-1.5 sm:space-y-0">
+              {categoryItems.map((item) => {
+                const line = byItemId.get(item.id);
+                // A picked row carries the money and the stepper on a second
+                // line: three columns on one line leaves the label about 50px
+                // on a phone, and the label is the whole point of a brochure
+                // the donor is reading along with.
+                return (
+                  <li
+                    key={item.id}
+                    className={`rounded-[12px] transition-colors ${
+                      line
+                        ? "bg-primary-soft text-primary"
+                        : "bg-surface-sunken text-ink hover:bg-primary-soft hover:text-primary"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onAdd(item)}
+                      className="flex min-h-12 w-full items-center justify-between gap-2 rounded-[12px] px-3 py-2 text-left"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                      {line ? null : (
+                        <span className="shrink-0 font-mono text-xs tabular-nums">
+                          {formatINRWithSymbol(item.amount, { paise: false })}
+                        </span>
+                      )}
+                    </button>
+                    {line ? (
+                      <div className="-mt-1 flex items-center justify-between gap-2 pl-3 pr-1 pb-1">
+                        {/* Line total first, working out second: the stepper
+                            takes 44px a side whatever the screen, so what runs
+                            out of room here is the working and never the
+                            money. No unit noun in it either — the catalogue's
+                            are "child", "woman", "batch", and a naive plural
+                            reads "2 childs" on a screen the donor can see. */}
+                        <span className="min-w-0 truncate font-mono text-[13px] tabular-nums">
+                          {formatINRWithSymbol(
+                            new Decimal(line.unitAmount).times(line.quantity),
+                            { paise: false },
+                          )}
+                          {line.quantity > 1
+                            ? ` · ${line.quantity} × ${formatINRWithSymbol(item.amount, { paise: false })}`
+                            : ""}
+                        </span>
+                        {item.allowsQuantity ? (
+                          <QuantityStepper
+                            label={item.label}
+                            quantity={line.quantity}
+                            onChange={(q) => onQuantity(item.id, q)}
+                            onRemove={() => onRemove(item.id)}
+                          />
+                        ) : (
+                          <StepperButton
+                            ariaLabel={`Remove ${item.label}`}
+                            onClick={() => onRemove(item.id)}
+                          >
+                            <IconX size={15} />
+                          </StepperButton>
+                        )}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         ))}
       </div>
@@ -998,58 +1044,52 @@ function SponsorshipPicker({
   );
 }
 
+/**
+ * Minus at one quantity removes the line — the thumb that added an item by
+ * mistake finds the way out under the same finger, instead of a separate X.
+ */
 function QuantityStepper({
   label,
   quantity,
-  unitNoun,
   onChange,
+  onRemove,
 }: {
   label: string;
   quantity: number;
-  unitNoun?: string;
   onChange: (quantity: number) => void;
+  onRemove: () => void;
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-2">
-      <div className="flex items-center rounded-full bg-surface shadow-[var(--shadow-sm)]">
-        <StepperButton
-          ariaLabel={`Decrease ${label}`}
-          disabled={quantity <= 1}
-          onClick={() => onChange(quantity - 1)}
-        >
-          <IconMinus size={13} />
-        </StepperButton>
-        <input
-          inputMode="numeric"
-          aria-label={`Quantity for ${label}`}
-          value={quantity}
-          // Selecting on focus keeps direct typing working: the first keystroke
-          // replaces the value instead of appending to it.
-          onFocus={(e) => e.currentTarget.select()}
-          onChange={(e) => onChange(parseInt(e.target.value, 10) || 1)}
-          className="w-9 bg-transparent text-center font-mono text-sm tabular-nums text-ink outline-none"
-        />
-        <StepperButton ariaLabel={`Increase ${label}`} onClick={() => onChange(quantity + 1)}>
-          <IconPlus size={13} />
-        </StepperButton>
-      </div>
-      {unitNoun ? (
-        <span className="hidden text-[11px] text-ink-subtle sm:inline">
-          {quantity === 1 ? unitNoun : `${unitNoun}s`}
-        </span>
-      ) : null}
+    <div className="flex shrink-0 items-center pr-1">
+      <StepperButton
+        ariaLabel={quantity <= 1 ? `Remove ${label}` : `Decrease ${label}`}
+        onClick={() => (quantity <= 1 ? onRemove() : onChange(quantity - 1))}
+      >
+        {quantity <= 1 ? <IconX size={15} /> : <IconMinus size={15} />}
+      </StepperButton>
+      <input
+        inputMode="numeric"
+        aria-label={`Quantity for ${label}`}
+        value={quantity}
+        // Selecting on focus keeps direct typing working: the first keystroke
+        // replaces the value instead of appending to it.
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => onChange(parseInt(e.target.value, 10) || 1)}
+        className="h-11 w-8 bg-transparent text-center font-mono text-sm tabular-nums outline-none sm:h-8"
+      />
+      <StepperButton ariaLabel={`Increase ${label}`} onClick={() => onChange(quantity + 1)}>
+        <IconPlus size={15} />
+      </StepperButton>
     </div>
   );
 }
 
 function StepperButton({
   ariaLabel,
-  disabled,
   onClick,
   children,
 }: {
   ariaLabel: string;
-  disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -1057,9 +1097,8 @@ function StepperButton({
     <button
       type="button"
       aria-label={ariaLabel}
-      disabled={disabled}
       onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center rounded-full text-ink-muted hover:text-primary disabled:opacity-30"
+      className="flex size-11 items-center justify-center rounded-full hover:bg-surface/70 sm:size-8"
     >
       {children}
     </button>
@@ -1082,7 +1121,7 @@ function AnonymousMeter({
         ? "bg-[color:var(--warning)]"
         : "bg-primary";
   return (
-    <div className="w-48 shrink-0">
+    <div className="w-full shrink-0 sm:w-48">
       <p className="text-[10px] text-ink-subtle">
         {formatINRWithSymbol(String(total), { paise: false })} of{" "}
         {formatINRWithSymbol(String(limit), { paise: false })}

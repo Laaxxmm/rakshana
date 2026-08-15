@@ -4,6 +4,16 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * The container is what scrolls, never the page: a table too wide for its
+ * column — a phone, or a report with a dozen columns — is dragged sideways
+ * inside this box while the body stays put.
+ *
+ * Cells are `whitespace-nowrap` by default, so a table keeps its intrinsic
+ * width and scrolls rather than crushing its columns. A cell that should wrap
+ * instead — the stacked first cell the list screens show below `sm` — asks for
+ * it with `whitespace-normal`.
+ */
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
     <div
@@ -82,8 +92,10 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
       data-slot="table-cell"
+      // Taller on a phone, where a row is a two-line stack and a thumb rather
+      // than a cursor is aiming at the links inside it.
       className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        "px-2 py-3 align-middle whitespace-nowrap sm:py-2 [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}

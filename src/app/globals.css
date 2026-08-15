@@ -227,4 +227,26 @@
     font-feature-settings: "tnum", "lnum";
     font-variant-numeric: tabular-nums lining-nums;
   }
+
+  /* A 44px floor on every control, for touch pointers only.
+     The design system sizes buttons 28-36px and inputs at 32px, which is
+     right under a mouse and under a thumb is a miss. Sizing it here rather
+     than per screen means a control is thumb-sized wherever it renders,
+     including the shadcn primitives no screen owns.
+     `min-height` is inert on a non-replaced inline box, so a link inside a
+     sentence keeps its line box; only links already laid out as a block,
+     flex or inline-flex — the button-shaped ones — grow. Width is left
+     alone: forcing 44px there would push dense rows into a sideways
+     scroll, and an icon button that is 44px tall is already reachable. */
+  @media (pointer: coarse) {
+    button,
+    summary,
+    select,
+    textarea,
+    a[href],
+    [role="button"],
+    input:not([type="checkbox"], [type="radio"], [type="hidden"]) {
+      min-height: 44px;
+    }
+  }
 }

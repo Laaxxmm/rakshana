@@ -54,7 +54,10 @@ export function UserMenu({
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
+        {/* On a phone this menu is the only way to the settings hub, and a
+            28px row is not a thumb target. */}
         <DropdownMenuItem
+          className="min-h-11 md:min-h-0"
           render={
             <Link href="/settings/organisation">
               <IconSettings size={14} />
@@ -65,7 +68,7 @@ export function UserMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => signOut({ callbackUrl: "/login" })}
-          className="text-destructive focus:text-destructive"
+          className="min-h-11 text-destructive focus:text-destructive md:min-h-0"
         >
           <IconLogout size={14} />
           Sign out

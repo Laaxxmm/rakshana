@@ -86,6 +86,17 @@ function labelled(label: string): HTMLElement | null {
   return document.body.querySelector(`[aria-label="${label}"]`);
 }
 
+function setValue(el: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )!.set!;
+  act(() => {
+    setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 function click(el: Element) {
   act(() => {
     el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -97,6 +108,16 @@ const ITEM = {
   category: "CHILDREN_EDUCATION",
   label: "School bag & shoes per child",
   amount: "1500.00",
+  unitNoun: "child",
+  allowsQuantity: true,
+};
+
+/** A second row, so a filter has something to hide. */
+const OTHER_ITEM = {
+  id: "item-2",
+  category: "CHILDREN_EDUCATION",
+  label: "One year education sponsorship for a child",
+  amount: "46000.00",
   unitNoun: "child",
   allowsQuantity: true,
 };
@@ -180,6 +201,33 @@ describe("the sponsorship picker on a phone", () => {
     expect(labelled(`Quantity for ${ITEM.label}`)).toBeNull();
     const amount = document.getElementById("amount") as HTMLInputElement;
     expect(amount.value).toBe("");
+  });
+
+  it("narrows the brochure to what was typed, and says so when nothing matches", () => {
+    mountDonationForm([ITEM, OTHER_ITEM]);
+
+    const filter = labelled("Filter sponsorships") as HTMLInputElement;
+    expect(filter).toBeTruthy();
+
+    setValue(filter, "education");
+    expect(button(new RegExp(OTHER_ITEM.label))).toBeTruthy();
+    expect(buttons(new RegExp(ITEM.label))).toHaveLength(0);
+
+    setValue(filter, "zzz");
+    expect(document.body.textContent).toContain("Nothing matches");
+  });
+
+  it("keeps a picked row visible while the filter hides its neighbours", () => {
+    mountDonationForm([ITEM, OTHER_ITEM]);
+
+    click(button(new RegExp(ITEM.label)));
+    // Filtering the basket out from under somebody mid-edit loses the
+    // quantity they set with no sign it went.
+    setValue(labelled("Filter sponsorships") as HTMLInputElement, "education");
+
+    expect(labelled(`Quantity for ${ITEM.label}`)).toBeTruthy();
+    const amount = document.getElementById("amount") as HTMLInputElement;
+    expect(amount.value).toBe("1500.00");
   });
 
   it("counts the picked items in the bar that does not scroll away", () => {

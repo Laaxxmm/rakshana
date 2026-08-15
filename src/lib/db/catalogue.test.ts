@@ -1,10 +1,38 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The scope helper drags NextAuth in, and this suite talks to the database
 // directly — it never goes through a session.
 vi.mock("@/lib/auth/scope", () => ({ getOrgScope: vi.fn() }));
+
+/**
+ * This file works in a Postgres schema of its own.
+ *
+ * The migration under test plants rows for every organisation that has no
+ * catalogue — which is what a deploy-time backfill has to do, and why it is not
+ * narrowed to one tenant. Vitest runs test files in parallel workers against a
+ * single database, so replaying it in the schema the rest of the suite uses
+ * reaches their organisations too: it hands the fixture of
+ * `src/lib/banking/primary.test.ts` two bank accounts it never created, one of
+ * them primary, and it fails outright with `23503` when a sibling file deletes
+ * an organisation between the `FROM "Organisation"` scan and the commit — the
+ * parent row the insert names is gone by the time the key is checked.
+ *
+ * Pointing DATABASE_URL at a private schema before `@/lib/db/prisma` is
+ * imported moves this file's whole world into it. The migration statements stay
+ * verbatim; there is simply nothing but this fixture for them to reach.
+ *
+ * `beforeAll` drops and rebuilds the schema on every run, so a crashed run
+ * leaves nothing behind that the next one has to reckon with. The rows of the
+ * last run stay in the database until then, which is what you want to read when
+ * one of these fails.
+ */
+const SCHEMA = "catalogue_test";
+const schemaUrl = new URL(process.env.DATABASE_URL ?? "");
+schemaUrl.searchParams.set("schema", SCHEMA);
+process.env.DATABASE_URL = schemaUrl.href;
 
 const { prismaUnsafe } = await import("@/lib/db/prisma");
 const { SPONSORSHIP_CATALOGUE, BANK_ACCOUNTS } = await import(
@@ -45,16 +73,16 @@ async function applyMigration() {
   }
 }
 
-async function cleanup() {
-  for (const id of [EMPTY_ORG, EDITED_ORG]) {
-    await prismaUnsafe.sponsorshipItem.deleteMany({ where: { organisationId: id } });
-    await prismaUnsafe.bankAccount.deleteMany({ where: { organisationId: id } });
-    await prismaUnsafe.organisation.deleteMany({ where: { id } });
-  }
-}
-
 beforeAll(async () => {
-  await cleanup();
+  await prismaUnsafe.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
+  // Inherits the rewritten DATABASE_URL, so it builds the private schema and
+  // not the one the rest of the suite works in. This is also how the migration
+  // first reaches the schema — against no organisations, before the fixture
+  // exists, which is the run that must plant nothing.
+  execFileSync(join(process.cwd(), "node_modules", ".bin", "prisma"), ["migrate", "deploy"], {
+    stdio: "pipe",
+  });
+
   await prismaUnsafe.organisation.create({
     data: { id: EMPTY_ORG, name: "Catalogue Empty Trust" },
   });
@@ -76,7 +104,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await cleanup();
   await prismaUnsafe.$disconnect();
 });
 

@@ -41,6 +41,17 @@ export const PERMISSIONS = {
   "donation.resendReceipt": ["OWNER", "ADMIN", "ACCOUNTANT"],
   "donation.regenerate":    ["OWNER", "ADMIN"],
 
+  // ----- Sponsorship catalogue (the brochure menu /donations/new prices from) -----
+  // These are the figures the trust quotes to donors, so editing them is
+  // brochure authorship rather than bookkeeping: an ACCOUNTANT records what a
+  // donor gave, and is not the person who should also set what the menu asks
+  // for. ADMIN is in because revising the brochure is a yearly operational
+  // chore and OWNER-only leaves it stuck behind one trustee — the same reason
+  // ADMIN already cancels a donation and approves a bill to ₹1L.
+  // Reading needs no key of its own: every active price is already on the
+  // donation screen, and the settings screen shows it read-only to the rest.
+  "sponsorship.manage":     ["OWNER", "ADMIN"],
+
   // ----- Communications (donor log entries) -----
   "communication.create":   ["OWNER", "ADMIN", "ACCOUNTANT"],
   "communication.delete":   ["OWNER", "ADMIN"],

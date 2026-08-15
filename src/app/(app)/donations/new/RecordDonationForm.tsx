@@ -535,17 +535,8 @@ export function RecordDonationForm({
             ) : null}
           </div>
 
-          {/* Sponsorship menu — the fast path. Free entry stays below. */}
-          <SponsorshipPicker
-            items={sponsorshipItems}
-            lines={lines}
-            onAdd={addLine}
-            onQuantity={setQuantity}
-            onRemove={(itemId) => setLines((prev) => prev.filter((l) => l.itemId !== itemId))}
-            onClear={() => setLines([])}
-          />
-
-          {/* Amount */}
+          {/* Amount first: most donations are a figure somebody hands over,
+              not a brochure line. The menu below fills this when it is used. */}
           <div className="space-y-1">
             <Label
               htmlFor="amount"
@@ -579,6 +570,18 @@ export function RecordDonationForm({
               </p>
             ) : null}
           </div>
+
+          {/* The brochure menu. Picking from it writes the total into Amount
+              above, which is why that field goes read-only while lines exist. */}
+          <SponsorshipPicker
+            items={sponsorshipItems}
+            lines={lines}
+            onAdd={addLine}
+            onQuantity={setQuantity}
+            onRemove={(itemId) => setLines((prev) => prev.filter((l) => l.itemId !== itemId))}
+            onClear={() => setLines([])}
+          />
+
         </CardContent>
       </Card>
 
@@ -940,10 +943,23 @@ function SponsorshipPicker({
   onRemove: (itemId: string) => void;
   onClear: () => void;
 }) {
+  const [filter, setFilter] = React.useState("");
+
   if (items.length === 0) return null;
 
+  const needle = filter.trim().toLowerCase();
+  // A picked row always stays visible: filtering the basket out from under
+  // somebody mid-edit loses their quantity with no way to see it went.
+  const visible = needle
+    ? items.filter(
+        (i) =>
+          i.label.toLowerCase().includes(needle) ||
+          lines.some((l) => l.itemId === i.id),
+      )
+    : items;
+
   const categories = new Map<string, SponsorshipItem[]>();
-  for (const item of items) {
+  for (const item of visible) {
     const bucket = categories.get(item.category);
     if (bucket) bucket.push(item);
     else categories.set(item.category, [item]);
@@ -954,6 +970,13 @@ function SponsorshipPicker({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <Label className="text-xs uppercase tracking-[0.16em] text-ink-subtle">Sponsorships</Label>
+        <Input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter…"
+          aria-label="Filter sponsorships"
+          className="ml-auto h-9 max-w-[160px] text-sm"
+        />
         {lines.length > 0 ? (
           <button
             type="button"
@@ -966,6 +989,11 @@ function SponsorshipPicker({
       </div>
 
       <div className="space-y-3">
+        {visible.length === 0 ? (
+          <p className="rounded-[12px] bg-surface-sunken px-3 py-4 text-center text-sm text-ink-muted">
+            Nothing matches “{filter.trim()}”.
+          </p>
+        ) : null}
         {[...categories].map(([category, categoryItems]) => (
           <div key={category} className="space-y-1.5">
             <p className="text-[11px] uppercase tracking-[0.14em] text-ink-subtle">
@@ -992,7 +1020,10 @@ function SponsorshipPicker({
                       onClick={() => onAdd(item)}
                       className="flex min-h-12 w-full items-center justify-between gap-2 rounded-[12px] px-3 py-2 text-left"
                     >
-                      <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+                      {/* Never truncate: the longest labels are the
+                          ₹46,000 and ₹95,000 rows, and the wording is what
+                          the donor is being asked to fund. */}
+                      <span className="min-w-0 flex-1 text-sm leading-snug">{item.label}</span>
                       {line ? null : (
                         <span className="shrink-0 font-mono text-xs tabular-nums">
                           {formatINRWithSymbol(item.amount, { paise: false })}

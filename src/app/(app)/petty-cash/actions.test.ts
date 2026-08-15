@@ -167,8 +167,14 @@ describe("topUpPettyCash", () => {
     expect(topUps[0]!.amount.toFixed(2)).toBe("20000.00");
     expect(topUps[0]!.bankAccountId).toBe(bankAccountA);
 
-    // Bank side: 50,000 opening − 20,000 transferred out, counted once.
-    expect(textNodes(await BankingPage())).toContain(formatINRWithSymbol("30000"));
+    // Bank side: 50,000 opening − 20,000 transferred out, counted once. The
+    // banking page filters by period; the window that holds TOP_UP_DATE is
+    // what this assertion is about, so it is named rather than left to
+    // whichever financial year the clock is in when the suite runs.
+    const banking = await BankingPage({
+      searchParams: Promise.resolve({ fy: "2025-26" }),
+    });
+    expect(textNodes(banking)).toContain(formatINRWithSymbol("30000"));
   });
 
   it("rejects a floatId belonging to another organisation", async () => {

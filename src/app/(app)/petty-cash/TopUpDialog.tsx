@@ -48,7 +48,15 @@ export function TopUpDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="outline">Top up</Button>} />
+      {/* Thumb-sized on a phone, where this sits beside the float's ledger
+          link; back to the row's own height from sm up. */}
+      <DialogTrigger
+        render={
+          <Button size="sm" variant="outline" className="min-h-11 flex-1 sm:min-h-0 sm:flex-none">
+            Top up
+          </Button>
+        }
+      />
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Top up — {floatName}</DialogTitle>

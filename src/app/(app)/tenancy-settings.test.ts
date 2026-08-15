@@ -46,6 +46,7 @@ const reportActions = await import("./reports/actions");
 const orgActions = await import("./settings/organisation/actions");
 const memberActions = await import("./settings/members/actions");
 const accountActions = await import("./settings/account/actions");
+const sponsorshipActions = await import("./settings/sponsorship/actions");
 const importActions = await import("./donors/import/actions");
 const donorSearchActions = await import("./donations/new/donor-search");
 const vendorSearchActions = await import("./expenses/new/vendor-search");
@@ -136,6 +137,16 @@ async function makeFixture(organisationId: string) {
       excelUrl: `/api/files/org/${organisationId}/reports/${pad}.xlsx`,
     },
   });
+  const sponsorshipItem = await prismaUnsafe.sponsorshipItem.create({
+    data: {
+      organisationId,
+      category: "CHILDREN_EDUCATION",
+      label: `School bag & shoes per child ${pad}`,
+      amount: "1500",
+      unitNoun: "child",
+      sortOrder: 0,
+    },
+  });
   const primaryBank = await prismaUnsafe.bankAccount.create({
     data: {
       organisationId,
@@ -183,6 +194,7 @@ async function makeFixture(organisationId: string) {
     ldc,
     notification,
     report,
+    sponsorshipItem,
     primaryBank,
     spareBank,
     orgDocument,
@@ -592,6 +604,38 @@ const globalSearchSpecs: Record<string, Spec> = {
   },
 };
 
+const sponsorshipSpecs: Record<string, Spec> = {
+  createSponsorshipItem: {
+    run: sponsorshipActions.createSponsorshipItem,
+    ids: {},
+    base: () => ({
+      category: "CHILDREN_EDUCATION",
+      label: "Uniform set from a tenancy probe",
+      amount: "3250",
+      unitNoun: "child",
+      sortOrder: 1,
+    }),
+  },
+  updateSponsorshipItem: {
+    run: sponsorshipActions.updateSponsorshipItem,
+    ids: { id: (f) => f.sponsorshipItem.id },
+    // Every field the schema requires, so a refusal here is the tenancy check
+    // and not a validation error wearing its clothes.
+    base: () => ({
+      category: "CHILDREN_EDUCATION",
+      label: "Repriced by another trust",
+      amount: "9999",
+      unitNoun: "child",
+      sortOrder: 0,
+    }),
+  },
+  setSponsorshipItemActive: {
+    run: sponsorshipActions.setSponsorshipItemActive,
+    ids: { id: (f) => f.sponsorshipItem.id },
+    base: () => ({ isActive: false }),
+  },
+};
+
 const MODULES = [
   { file: "vendors/actions.ts", mod: vendorActions, specs: vendorSpecs },
   { file: "notifications/actions.ts", mod: notificationActions, specs: notificationSpecs },
@@ -599,6 +643,7 @@ const MODULES = [
   { file: "settings/organisation/actions.ts", mod: orgActions, specs: orgSpecs },
   { file: "settings/members/actions.ts", mod: memberActions, specs: memberSpecs },
   { file: "settings/account/actions.ts", mod: accountActions, specs: accountSpecs },
+  { file: "settings/sponsorship/actions.ts", mod: sponsorshipActions, specs: sponsorshipSpecs },
   { file: "donors/import/actions.ts", mod: importActions, specs: importSpecs },
   { file: "donations/new/donor-search.ts", mod: donorSearchActions, specs: donorSearchSpecs },
   { file: "expenses/new/vendor-search.ts", mod: vendorSearchActions, specs: vendorSearchSpecs },

@@ -2,20 +2,19 @@ import { defineConfig } from "vitest/config";
 import { loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { withTestDbParams } from "./vitest.db-url";
 
 // Next.js loads `.env` on its own; vitest does not. Without this the
 // DB-backed tests fail with "Environment variable not found: DATABASE_URL"
 // unless the caller happened to export it in their shell.
 Object.assign(process.env, loadEnv("test", process.cwd(), ""));
 
-// Every worker builds its own Prisma pool, and Prisma's default is
-// (2 * cores + 1) connections each — which on this machine multiplies past
-// Postgres's max_connections and fails whichever suites happen to start last.
-// It reads exactly like flakiness. Cap the pool per worker instead of the
-// worker count, so the suite keeps its parallelism.
+// Cap the Prisma pool per worker and widen its timeouts, so the suite keeps
+// its parallelism without workers giving up on a healthy Postgres. Reasoning
+// in vitest.db-url.ts; this has to happen before any worker spawns.
 const dbUrl = process.env["DATABASE_URL"];
-if (dbUrl && !dbUrl.includes("connection_limit")) {
-  process.env["DATABASE_URL"] = `${dbUrl}${dbUrl.includes("?") ? "&" : "?"}connection_limit=5`;
+if (dbUrl) {
+  process.env["DATABASE_URL"] = withTestDbParams(dbUrl);
 }
 
 export default defineConfig({
@@ -27,7 +26,13 @@ export default defineConfig({
     exclude: ["node_modules", ".next", "tests-e2e/**"],
     setupFiles: ["./vitest.setup.ts"],
     testTimeout: 20_000,
-    hookTimeout: 30_000,
+    // Above TEST_DB_PARAMS.pool_timeout, deliberately. A starved worker that
+    // waits out the full 30s pool timeout inside a beforeAll would otherwise
+    // trip the hook timeout at the same instant, turning an informative Prisma
+    // error into "Hook timed out" — and three suites shell out to
+    // `prisma migrate deploy` in that hook, which is the slowest thing in the
+    // run and the first to be starved.
+    hookTimeout: 60_000,
   },
   resolve: {
     alias: {

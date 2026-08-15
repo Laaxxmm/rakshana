@@ -97,6 +97,12 @@ export default async function OrganisationProfilePage() {
               Members · add your accountant
             </Link>
           ) : null}
+          <Link
+            href="/settings/sponsorship"
+            className="underline underline-offset-4 hover:text-ink"
+          >
+            Sponsorship menu · brochure prices
+          </Link>
         </div>
       </header>
 

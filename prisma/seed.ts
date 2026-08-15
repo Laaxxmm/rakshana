@@ -328,18 +328,17 @@ async function seedSponsorshipItems(organisationId: string) {
   // deploy-time copy lives in migration 20260815120000. See that file for why
   // there are two and what keeps them equal.
   for (const item of SPONSORSHIP_CATALOGUE) {
-    // Prices are revised yearly — update on re-seed so the menu stays current.
-    await prisma.sponsorshipItem.upsert({
+    // Create only. The trust edits these prices at /settings/sponsorship, and
+    // `db:seed:prod` is a documented step against a populated database — an
+    // update here would silently reset every revision a trustee made the next
+    // time anyone ran it. Same reason the approval bands and the owner's
+    // password stopped being written on re-seed.
+    const existing = await prisma.sponsorshipItem.findUnique({
       where: { organisationId_label: { organisationId, label: item.label } },
-      update: {
-        category: item.category,
-        amount: item.amount,
-        unitNoun: item.unitNoun,
-        sortOrder: item.sortOrder,
-        isActive: true,
-      },
-      create: { organisationId, ...item },
+      select: { id: true },
     });
+    if (existing) continue;
+    await prisma.sponsorshipItem.create({ data: { organisationId, ...item } });
   }
 }
 

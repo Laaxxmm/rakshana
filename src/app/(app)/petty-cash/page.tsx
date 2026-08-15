@@ -1,21 +1,13 @@
 import type { Metadata } from "next";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import Link from "next/link";
+import { Card, CardContent } from "@/components/ui/card";
 import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { roleHasPermission } from "@/lib/auth/permissions";
 import { formatINRWithSymbol } from "@/lib/format/inr";
-import { formatIST } from "@/lib/format/date";
 import { TopUpDialog } from "./TopUpDialog";
 import { NewFloatDialog } from "./NewFloatDialog";
+import { LEGACY_FLOAT_NOTE } from "./float-ledger";
 import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Petty cash — Rakshana" };
@@ -25,23 +17,11 @@ export default async function PettyCashPage() {
   const canManage = roleHasPermission(scope.role, "pettyCash.float.manage");
   const canTopUp = roleHasPermission(scope.role, "pettyCash.topUp");
 
-  const [floats, banks, users] = await Promise.all([
+  const [floats, banks, users, flagged] = await Promise.all([
     prisma.pettyCashFloat.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
-      include: {
-        topUps: {
-          orderBy: { topUpDate: "desc" },
-          take: 10,
-          include: { createdBy: { select: { name: true, email: true } } },
-        },
-        expenses: {
-          where: { status: { not: "CANCELLED" } },
-          orderBy: { expenseDate: "desc" },
-          take: 10,
-          include: { vendor: { select: { name: true } } },
-        },
-      },
+      include: { custodian: { select: { name: true, email: true } } },
     }),
     prisma.bankAccount.findMany({
       where: { isActive: true },
@@ -51,12 +31,28 @@ export default async function PettyCashPage() {
       where: { memberships: { some: { organisationId: scope.organisationId, isActive: true } } },
       select: { id: true, name: true, email: true },
     }),
+    // Vouchers rejected before rejection started refunding the float. Counted
+    // here so the float they belong to says so on the screen a custodian
+    // starts from; the ledger carries the detail and the caveat.
+    prisma.expense.groupBy({
+      by: ["pettyCashFloatId"],
+      where: { pettyCashFloatId: { not: null }, description: { contains: LEGACY_FLOAT_NOTE } },
+      _count: { _all: true },
+      _sum: { grossAmount: true },
+    }),
   ]);
+
+  const toCheck = new Map(
+    flagged.map((row) => [
+      row.pettyCashFloatId,
+      { count: row._count._all, amount: row._sum.grossAmount?.toString() ?? "0" },
+    ]),
+  );
 
   return (
     <div className="space-y-5">
       <HubNav hub="moneyOut" />
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Accounting</p>
           <h1
@@ -81,18 +77,55 @@ export default async function PettyCashPage() {
           </CardContent>
         </Card>
       ) : (
-        floats.map((f) => (
-          <Card key={f.id}>
-            <CardHeader>
-              <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-                <span>{f.name}</span>
-                <span className="flex items-center gap-2">
-                  <Badge variant="outline">
-                    Balance {formatINRWithSymbol(f.currentBalance.toString(), { paise: true })}
-                  </Badge>
-                  <Badge variant="outline">
-                    Float {formatINRWithSymbol(f.floatAmount.toString(), { paise: true })}
-                  </Badge>
+        /* A float is one line of fact — who holds it, what the register says
+           it holds — and two things to do with it. The movements behind the
+           balance are a ledger of their own, on the screen the balance links
+           to, so this one stays a list a custodian can pick their box off. */
+        floats.map((f) => {
+          const flag = toCheck.get(f.id);
+          return (
+            <Card key={f.id}>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/petty-cash/${f.id}`}
+                      className="font-display text-lg break-words text-ink hover:underline"
+                    >
+                      {f.name}
+                    </Link>
+                    <p className="text-xs text-ink-muted">
+                      Custodian {f.custodian?.name ?? f.custodian?.email ?? "unassigned"} · float{" "}
+                      {formatINRWithSymbol(f.floatAmount.toString(), { paise: true })}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle">
+                      Balance
+                    </p>
+                    <p className="font-mono text-lg tabular-nums text-ink">
+                      {formatINRWithSymbol(f.currentBalance.toString(), { paise: true })}
+                    </p>
+                  </div>
+                </div>
+
+                {flag ? (
+                  <Link
+                    href={`/petty-cash/${f.id}`}
+                    className="block text-xs text-[color:var(--warning)] hover:underline"
+                  >
+                    {flag.count} rejected {flag.count === 1 ? "voucher" : "vouchers"} to check
+                    against the box — up to {formatINRWithSymbol(flag.amount, { paise: true })}.
+                  </Link>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href={`/petty-cash/${f.id}`}
+                    className="inline-flex min-h-11 flex-1 items-center justify-center rounded-md border border-border bg-surface px-3 text-sm hover:bg-surface-sunken sm:h-9 sm:min-h-0 sm:flex-none"
+                  >
+                    Ledger
+                  </Link>
                   {canTopUp ? (
                     <TopUpDialog
                       floatId={f.id}
@@ -105,83 +138,11 @@ export default async function PettyCashPage() {
                       }))}
                     />
                   ) : null}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-5 md:grid-cols-2">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle mb-2">
-                  Recent expenses
-                </p>
-                {f.expenses.length === 0 ? (
-                  <p className="text-sm text-ink-muted">No expenses charged yet.</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Vendor</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {f.expenses.map((e) => (
-                        <TableRow key={e.id}>
-                          <TableCell className="text-xs">{formatIST(e.expenseDate)}</TableCell>
-                          <TableCell className="text-sm">
-                            {e.vendor?.name ?? e.cashPayeeName ?? "—"}
-                          </TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">
-                            {formatINRWithSymbol(e.grossAmount.toString(), { paise: true })}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-ink-subtle mb-2">
-                  Top-ups
-                </p>
-                {f.topUps.length === 0 ? (
-                  <p className="text-sm text-ink-muted">No top-ups yet.</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>By</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {f.topUps.map((t) => (
-                        <TableRow key={t.id}>
-                          <TableCell className="text-xs">{formatIST(t.topUpDate)}</TableCell>
-                          {/*
-                            Who drew the cash out of the bank — a top-up has no
-                            vendor, bill or approval chain, so this is the whole
-                            audit trail for the movement. Blank where the row
-                            predates the column and no paired expense named the
-                            signatory, and where that User row has since been
-                            deleted (the relation is optional and nulls out).
-                          */}
-                          <TableCell className="text-sm">
-                            {t.createdBy?.name ?? t.createdBy?.email ?? "—"}
-                          </TableCell>
-                          <TableCell className="text-right font-mono tabular-nums">
-                            {formatINRWithSymbol(t.amount.toString(), { paise: true })}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })
       )}
     </div>
   );

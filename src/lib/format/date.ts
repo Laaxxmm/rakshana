@@ -74,7 +74,7 @@ const FY_STRING = /^\d{4}-\d{2}$/;
  * The window a money screen is filtered to. `custom` is a fixed pair of days;
  * the rest roll forward with the calendar.
  */
-export type PeriodPreset = "week" | "month" | "quarter" | "fy" | "custom";
+export type PeriodPreset = "week" | "month" | "quarter" | "fy" | "custom" | "all";
 
 export type ResolvedPeriod = {
   preset: PeriodPreset;
@@ -159,6 +159,12 @@ export function resolvePeriod(
   }
 
   switch (params.period) {
+    // Everything, for a screen where a window would hide work rather than
+    // narrow it — an approvals queue owes a decision on a voucher whatever
+    // year it was dated. The bounds are wide rather than absent so every
+    // caller keeps the same shape and no query has to branch.
+    case "all":
+      return buildPeriod("all", "1900-01-01", "2099-12-31", "all time");
     // Weeks run Monday to Sunday.
     case "week":
       return buildPeriod(

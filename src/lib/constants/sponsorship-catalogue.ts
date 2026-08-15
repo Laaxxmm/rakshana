@@ -1,28 +1,39 @@
 import type { SponsorshipCategory } from "@prisma/client";
 
 /**
- * The trust's brochure donation menu — the single source of truth for the
- * sponsorship catalogue.
+ * The brochure donation menu an organisation starts with.
  *
- * Two things plant this list, and only one of them ever runs on Railway:
+ * The live catalogue is the `SponsorshipItem` rows, which
+ * `/settings/sponsorship` edits: that screen is where a revised price, a
+ * renamed item, a new one or a discontinued one is entered, and its edits are
+ * what the picker and the next receipt read. This list is the opening
+ * position, planted once for an organisation that has no catalogue at all.
  *
- *  - `prisma/seed.ts` imports it. Seeding is a manual command; a deploy does
- *    not run it.
+ * Two things plant it, and only one of them ever runs on Railway:
+ *
  *  - `prisma/migrations/20260815120000_plant_sponsorship_catalogue` carries a
  *    copy of these rows as SQL literals, because `npx prisma migrate deploy`
  *    is the whole of railway.json's preDeployCommand and SQL cannot import
  *    TypeScript. That copy is frozen: a migration already applied to
- *    production can never be edited, its checksum is recorded.
+ *    production can never be edited, its checksum is recorded. It inserts only
+ *    where the organisation holds no `SponsorshipItem` at all, so no deploy
+ *    can undo a price set on the settings screen.
+ *  - `prisma/seed.ts` imports it and upserts by (organisationId, label),
+ *    overwriting the price, unit noun, section and position of any row whose
+ *    label matches and switching it back on. Run against an organisation that
+ *    has revised its own menu, it puts this list back. Seeding is a manual
+ *    command — a deploy does not run it — so nothing but a person at a
+ *    terminal can do that.
  *
- * So the two can drift, and prices are revised yearly. The tripwire is
- * `src/lib/db/catalogue.test.ts`: it migrates a clean schema, plants nothing
- * by hand, and asserts the rows a migrated-only database holds are exactly
- * this list. Revise a price here without a migration carrying it and that test
- * fails — which is the same statement as "production would not have the new
- * price", because a migration is all production gets.
+ * So editing this list changes nothing for an organisation already running:
+ * it is not the way to revise a live price, and neither is a migration that
+ * rewrites rows, which would overwrite the trust's own figures on the next
+ * deploy.
  *
- * Revising a price is therefore: edit here, add a migration that updates the
- * rows it owns, run the suite.
+ * The tripwire is `src/lib/db/catalogue.test.ts`: it applies the migration to
+ * a clean organisation and asserts the rows it plants are exactly this list,
+ * so the frozen SQL copy and this constant cannot drift into disagreeing about
+ * what a new organisation starts with.
  *
  * Amounts are rupee strings, not numbers — they land in Decimal(18, 2) and
  * nothing in this codebase does Number arithmetic on money.

@@ -8,7 +8,6 @@ import { stateCodeForName } from "@/lib/constants/states";
 const PAN_RE   = /^[A-Z]{5}\d{4}[A-Z]$/;
 const TAN_RE   = /^[A-Z]{4}\d{5}[A-Z]$/;
 const CIN_RE   = /^[LUu]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}$/i;
-const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d][Zz][A-Z\d]$/;
 const IFSC_RE  = /^[A-Z]{4}0[A-Z\d]{6}$/;
 const PIN_RE   = /^\d{6}$/;
 
@@ -70,12 +69,6 @@ export const cinSchema = z
   .trim()
   .transform((s) => s.toUpperCase())
   .refine((s) => CIN_RE.test(s), "CIN should be 21 characters, e.g. U85100KA2024NPL123456");
-
-export const gstinSchema = z
-  .string()
-  .trim()
-  .transform((s) => s.toUpperCase())
-  .refine((s) => GSTIN_RE.test(s), "GSTIN should be 15 characters (state code + PAN + 3 chars)");
 
 export const ifscSchema = z
   .string()
@@ -177,7 +170,7 @@ export const identitySchema = z
 export type IdentityInput = z.infer<typeof identitySchema>;
 
 // ---------------------------------------------------------------------------
-// 12A / 80G / GST / FCRA / Darpan / CSR-1
+// 12A / 80G / FCRA / Darpan / CSR-1
 // ---------------------------------------------------------------------------
 
 export const twelveASchema = z.object({
@@ -197,13 +190,6 @@ export const eightyGSchema = z.object({
   remarks: optionalTrimmed,
 });
 export type EightyGInput = z.infer<typeof eightyGSchema>;
-
-export const gstSchema = z.object({
-  gstin: gstinSchema,
-  registrationDate: z.coerce.date(),
-  remarks: optionalTrimmed,
-});
-export type GstInput = z.infer<typeof gstSchema>;
 
 export const fcraSchema = z.object({
   number: z.string().trim().min(1, "FCRA registration number is required"),

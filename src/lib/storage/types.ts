@@ -35,7 +35,12 @@ export interface StorageAdapter {
   /** Stream a file for the /api/files route. */
   get(key: StorageKey): Promise<{ stream: ReadableStream; contentType: string; size: number } | null>;
 
-  /** Hard delete — only called from admin tooling, never from feature code. */
+  /**
+   * Hard delete. Called when the row that owns the object is itself deleted —
+   * `deleteReport` in src/app/(app)/reports/actions.ts is the one such path —
+   * and from admin tooling. Never as a way of replacing bytes: `put`
+   * overwrites. Implementations MUST treat an absent key as a no-op.
+   */
   remove(key: StorageKey): Promise<void>;
 
   /** Bytes-on-disk style size check, used by debug tooling. */

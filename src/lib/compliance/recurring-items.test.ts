@@ -64,7 +64,7 @@ beforeEach(async () => {
 });
 
 describe("generateRecurringItems", () => {
-  it("creates TDS + IT items even without GSTIN (GST items skipped)", async () => {
+  it("creates monthly TDS payment items", async () => {
     const out = await generateRecurringItems({
       organisationId: TEST_ORG,
       horizonMonths: 3,
@@ -73,14 +73,14 @@ describe("generateRecurringItems", () => {
     const items = await prismaUnsafe.complianceItem.findMany({
       where: { organisationId: TEST_ORG },
     });
-    // No GSTR items because no GST registration
-    expect(items.every((i) => !i.title.startsWith("GSTR-1"))).toBe(true);
-    expect(items.every((i) => !i.title.startsWith("GSTR-3B"))).toBe(true);
-    // TDS payment items present
-    expect(items.some((i) => i.title.startsWith("TDS payment"))).toBe(true);
+    // The annual IT items only land inside a 3-month horizon for part of the
+    // year, so this asserts on the monthly item that is always in range.
+    expect(items.filter((i) => i.title.startsWith("TDS payment"))).toHaveLength(3);
   });
 
-  it("creates GSTR-1 + GSTR-3B items when GSTIN is set", async () => {
+  it("never emits GST items, even for an org with a GstRegistration row", async () => {
+    // The GST tables survive in the schema so the module can be switched back
+    // on without a migration; nothing in the app writes or reads them today.
     await prismaUnsafe.gstRegistration.create({
       data: {
         organisationId: TEST_ORG,
@@ -95,8 +95,9 @@ describe("generateRecurringItems", () => {
     const items = await prismaUnsafe.complianceItem.findMany({
       where: { organisationId: TEST_ORG },
     });
-    expect(items.some((i) => i.title.startsWith("GSTR-1"))).toBe(true);
-    expect(items.some((i) => i.title.startsWith("GSTR-3B"))).toBe(true);
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.some((i) => i.category === "GST")).toBe(false);
+    expect(items.some((i) => i.title.startsWith("GSTR-"))).toBe(false);
   });
 
   it("is idempotent — re-running creates 0 new rows", async () => {

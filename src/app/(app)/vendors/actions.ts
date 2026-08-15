@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { safeAction } from "@/lib/actions/safe-action";
+import { safeAction, UserFacingError } from "@/lib/actions/safe-action";
 import { prisma } from "@/lib/db/prisma";
+import { formatIST } from "@/lib/format/date";
 import { syncExpiryReminders } from "@/lib/compliance/expiry";
 import { vendorSchema, ldcSchema } from "@/lib/schemas/vendor";
 
@@ -20,7 +21,7 @@ export const createVendor = safeAction
       return { ok: true, id: created.id };
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        throw new Error("A vendor with this PAN/GSTIN already exists.");
+        throw new Error("A vendor with this PAN already exists.");
       }
       throw err;
     }
@@ -67,11 +68,50 @@ export const createLdc = safeAction
     return { ok: true, id: created.id };
   });
 
+/**
+ * A certificate nothing cites is a draft and can go. One a TdsEntry cites is
+ * evidence: `aggregateTdsReturn` reads `TdsEntry.ldcCertificateId` to justify a
+ * deduction made below the statutory rate, and the FK is ON DELETE SET NULL —
+ * so the delete would not fail, it would quietly strip that justification off
+ * rows already filed in a Form 26Q. Postgres will not refuse it, so this does.
+ *
+ * The count is the relation's own rather than a scoped `tdsEntry.count`, so an
+ * entry outside the caller's organisation still blocks the delete instead of
+ * being silently nulled.
+ */
 export const deleteLdc = safeAction
   .metadata({ requires: "ldc.manage" })
   .inputSchema(z.object({ id: z.string().min(1) }))
   .action(async ({ parsedInput }) => {
-    await prisma.ldcCertificate.delete({ where: { id: parsedInput.id } });
+    // Scoped resolve: another organisation's id finds nothing here, and the
+    // delete below is given the resolved row's id.
+    const ldc = await prisma.ldcCertificate.findUnique({
+      where: { id: parsedInput.id },
+      select: {
+        id: true,
+        certNumber: true,
+        validTo: true,
+        _count: { select: { entries: true } },
+      },
+    });
+    if (!ldc) {
+      throw new UserFacingError(
+        "That certificate is not in this organisation's records.",
+      );
+    }
+
+    const cited = ldc._count.entries;
+    if (cited > 0) {
+      throw new UserFacingError(
+        `LDC ${ldc.certNumber} is what ${cited} TDS ${cited === 1 ? "entry cites" : "entries cite"} ` +
+          `as the justification for deducting below the statutory rate, so it cannot be deleted — ` +
+          `those deductions would stop explaining themselves in the return. The certificate stops ` +
+          `applying on its own after ${formatIST(ldc.validTo)}; if it was recorded wrongly, the ` +
+          `entries citing it have to be re-deducted at the statutory rate first.`,
+      );
+    }
+
+    await prisma.ldcCertificate.delete({ where: { id: ldc.id } });
     revalidatePath("/vendors");
     return { ok: true };
   });

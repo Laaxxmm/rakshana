@@ -52,7 +52,7 @@ export const updateDonor = safeAction
     }
     const { id, ...data } = parsedInput;
     try {
-      await prisma.donor.update({ where: { id }, data });
+      await prisma.donor.update({ where: { id: existing.id }, data });
       revalidatePath("/donors");
       revalidatePath(`/donors/${id}`);
       return { ok: true };
@@ -73,7 +73,7 @@ export const softDeleteDonor = safeAction
       throw new Error("Cannot delete the system Anonymous bucket.");
     }
     await prisma.donor.update({
-      where: { id: parsedInput.id },
+      where: { id: existing.id },
       data: { status: "INACTIVE" },
     });
     revalidatePath("/donors");
@@ -110,9 +110,17 @@ export const addCommunication = safeAction
   .metadata({ requires: "communication.create" })
   .inputSchema(communicationSchema)
   .action(async ({ parsedInput, ctx }) => {
+    // Communication carries its own organisationId, so the extension stamps
+    // the row with the caller's tenant — but it never looks at donorId, and
+    // the row is read back through its `donor` relation. Resolving the donor
+    // through the scoped client is what keeps the log entry, and the donor it
+    // exposes, inside one trust.
+    const donor = await prisma.donor.findUniqueOrThrow({
+      where: { id: parsedInput.donorId },
+    });
     await prisma.communication.create({
       data: {
-        donorId: parsedInput.donorId,
+        donorId: donor.id,
         channel: parsedInput.channel,
         direction: parsedInput.direction,
         subject: parsedInput.subject,
@@ -121,6 +129,6 @@ export const addCommunication = safeAction
         sentById: ctx.scope.userId,
       } as never,
     });
-    revalidatePath(`/donors/${parsedInput.donorId}`);
+    revalidatePath(`/donors/${donor.id}`);
     return { ok: true };
   });

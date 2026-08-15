@@ -8,12 +8,10 @@ import { toast } from "sonner";
 import {
   twelveASchema,
   eightyGSchema,
-  gstSchema,
   type TwelveAInput,
   type EightyGInput,
-  type GstInput,
 } from "@/lib/schemas/organisation";
-import { upsertTwelveA, upsertEightyG, upsertGstRegistration } from "./actions";
+import { upsertTwelveA, upsertEightyG } from "./actions";
 import { EditableField, EditableFieldShell } from "@/components/patterns/EditableField";
 import { StickySaveBar } from "@/components/patterns/StickySaveBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,30 +32,20 @@ type Defaults80G = {
   isProvisional: boolean;
   remarks: string;
 } | null;
-type DefaultsGst = {
-  gstin: string;
-  registrationDate: string;
-  remarks: string;
-} | null;
 
 export function TaxCompliancePanel({
   canEdit,
-  stateCode,
   twelveA,
   eightyG,
-  gst,
 }: {
   canEdit: boolean;
-  stateCode: string | null;
   twelveA: Defaults12A;
   eightyG: Defaults80G;
-  gst: DefaultsGst;
 }) {
   return (
     <div className="space-y-5">
       <TwelveACard canEdit={canEdit} defaults={twelveA} />
       <EightyGCard canEdit={canEdit} defaults={eightyG} />
-      <GstCard canEdit={canEdit} defaults={gst} stateCode={stateCode} />
     </div>
   );
 }
@@ -172,78 +160,6 @@ function EightyGCard({ canEdit, defaults }: { canEdit: boolean; defaults: Defaul
             <EditableFieldShell label="Remarks" className="md:col-span-2">
               <Textarea rows={2} {...register("remarks")} />
             </EditableFieldShell>
-          </CardContent>
-        </Card>
-        {canEdit ? (
-          <StickySaveBar dirty={isDirty} pending={isExecuting} onReset={() => reset()} />
-        ) : null}
-      </fieldset>
-    </form>
-  );
-}
-
-// ---------------------- GST ----------------------
-
-function GstCard({
-  canEdit,
-  defaults,
-  stateCode,
-}: {
-  canEdit: boolean;
-  defaults: DefaultsGst;
-  stateCode: string | null;
-}) {
-  const form = useForm<GstInput>({
-    resolver: zodResolver(gstSchema) as unknown as never,
-    defaultValues: {
-      gstin: defaults?.gstin ?? "",
-      registrationDate: (defaults?.registrationDate ?? "") as unknown as Date,
-      remarks: defaults?.remarks ?? "",
-    },
-  });
-  const { register, handleSubmit, formState: { errors, isDirty }, reset, watch } = form;
-  const enteredGstin = watch("gstin") ?? "";
-  const gstinPrefix = enteredGstin.slice(0, 2);
-  const stateMismatch =
-    enteredGstin.length >= 2 && stateCode && gstinPrefix !== stateCode;
-
-  const { execute, isExecuting } = useAction(upsertGstRegistration, {
-    onSuccess: ({ input }) => {
-      toast.success("GST saved");
-      reset(input as unknown as GstInput);
-    },
-    onError: ({ error }) => toast.error(error.serverError ?? "Could not save"),
-  });
-
-  return (
-    <form onSubmit={handleSubmit((vals) => execute(vals))}>
-      <fieldset disabled={!canEdit || isExecuting}>
-        <Card>
-          <CardHeader>
-            <CardTitle>GST registration</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-5 md:grid-cols-2">
-            <EditableField
-              label="GSTIN"
-              required
-              hint="15 characters"
-              error={errors.gstin?.message}
-              {...register("gstin")}
-            />
-            <EditableField
-              label="Registration date"
-              required
-              type="date"
-              {...register("registrationDate")}
-            />
-            <EditableFieldShell label="Remarks" className="md:col-span-2">
-              <Textarea rows={2} {...register("remarks")} />
-            </EditableFieldShell>
-            {stateMismatch ? (
-              <div className="md:col-span-2 rounded-md border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/8 px-3 py-2 text-xs text-[color:var(--warning)]">
-                GSTIN prefix {gstinPrefix} doesn&apos;t match the org&apos;s state code {stateCode}. Double-check before saving.
-              </div>
-            ) : null}
           </CardContent>
         </Card>
         {canEdit ? (

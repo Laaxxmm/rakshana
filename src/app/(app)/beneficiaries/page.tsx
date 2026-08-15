@@ -12,7 +12,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Decimal } from "decimal.js";
 import { prisma } from "@/lib/db/prisma";
+import { HubNav } from "@/components/shell/HubNav";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { roleHasPermission } from "@/lib/auth/permissions";
 import { formatINRWithSymbol } from "@/lib/format/inr";
@@ -76,6 +78,7 @@ export default async function BeneficiariesPage({
 
   return (
     <div className="space-y-5">
+      <HubNav hub="programmes" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Programmes</p>
@@ -145,8 +148,8 @@ export default async function BeneficiariesPage({
               <TableBody>
                 {beneficiaries.map((b) => {
                   const total = b.disbursements.reduce(
-                    (acc, d) => acc + Number(d.value),
-                    0,
+                    (acc, d) => acc.plus(d.value.toString()),
+                    new Decimal(0),
                   );
                   return (
                     <TableRow key={b.id} className="hover:bg-primary-soft/30">
@@ -168,7 +171,7 @@ export default async function BeneficiariesPage({
                         {b.enrolments.length > 2 ? ` +${b.enrolments.length - 2}` : ""}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
-                        {formatINRWithSymbol(String(total), { paise: true })}
+                        {formatINRWithSymbol(total, { paise: true })}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-[10px]">

@@ -35,7 +35,7 @@ runbook for incidents, backups, and routine maintenance.
    | `AUTH_SECRET` | output of `openssl rand -base64 32` | Different from dev value |
    | `AUTH_URL` | `https://<your-railway-domain>.up.railway.app` | Update after first deploy gives you a domain |
    | `AUTH_TRUST_HOST` | `true` | Required behind Railway's edge proxy |
-   | `STORAGE_BACKEND` | `r2` | Plus the four `R2_*` vars — see §6. `local` loses every upload on redeploy |
+   | `STORAGE_BACKEND` | *(unset)* | Defaults to `postgres`, which needs nothing else. Set `r2` only with the four `R2_*` vars — see §6. Never `local` |
    | `EMAIL_DRIVER` | `smtp` | or `console` for testing |
    | `SMTP_HOST` | `smtp.gmail.com` | |
    | `SMTP_PORT` | `465` | |
@@ -178,14 +178,17 @@ When cron ships, scheduled invocations will write `JobRun` rows.
 
 ## 6. Storage backend
 
-**`STORAGE_BACKEND=local`** (default) writes logos, signatures, donor KYC
-documents, receipts / vouchers and report PDFs to the container's filesystem
-under `/.uploads`.
+**`STORAGE_BACKEND=postgres`** is the default and needs no configuration. Logos,
+signatures, donor KYC documents, receipts / vouchers and report PDFs are stored
+as rows alongside everything else, so they are covered by the same backups and
+survive a redeploy. At this trust's volume — roughly 80 documents a month — the
+table stays small.
 
-> ⚠️ **Railway containers are ephemeral.** On every restart / redeploy the
-> local filesystem resets and every uploaded file is gone — logos, signatures
-> and donor KYC documents included. `local` is for dev and CI only. Any
-> deployed environment must run `STORAGE_BACKEND=r2`.
+> ⚠️ **`local` loses files on Railway.** Containers are ephemeral: every
+> restart and redeploy resets the filesystem, taking every uploaded file with
+> it. Receipts generated before August 2026 were lost this way. `local` is for
+> development only, and the app now refuses it in favour of `postgres` unless
+> `LOCAL_STORAGE_ROOT` names a path you have chosen deliberately.
 
 **`STORAGE_BACKEND=r2`** stores the same keys as objects in Cloudflare R2
 (S3-compatible). Content-type is kept as native object metadata. Reads are

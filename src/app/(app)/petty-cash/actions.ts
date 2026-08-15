@@ -12,11 +12,22 @@ import {
 export const createPettyCashFloat = safeAction
   .metadata({ requires: "pettyCash.float.manage" })
   .inputSchema(pettyCashFloatSchema)
-  .action(async ({ parsedInput }) => {
+  .action(async ({ parsedInput, ctx }) => {
+    // The custodian answers for the cash box, so they have to be in this trust.
+    // User and Membership are system models — the tenancy extension scopes
+    // neither — so the organisation is named in the filter by hand, and the
+    // membership's own userId is what gets written.
+    const membership = await prismaUnsafe.membership.findFirstOrThrow({
+      where: {
+        userId: parsedInput.custodianId,
+        organisationId: ctx.scope.organisationId,
+        isActive: true,
+      },
+    });
     const created = await prisma.pettyCashFloat.create({
       data: {
         name: parsedInput.name,
-        custodianId: parsedInput.custodianId,
+        custodianId: membership.userId,
         floatAmount: parsedInput.floatAmount.toString(),
         currentBalance: parsedInput.floatAmount.toString(),
         isActive: true,

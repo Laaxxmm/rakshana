@@ -132,7 +132,13 @@ export const PERMISSIONS = {
   // ----- Reports & audit -----
   "reports.view":           ["OWNER", "ADMIN", "ACCOUNTANT", "PROJECT_MANAGER", "AUDITOR", "VIEWER"],
   "reports.export":         ["OWNER", "ADMIN", "ACCOUNTANT", "AUDITOR"],
-  "audit.view":             ["OWNER", "ADMIN", "AUDITOR"],
+  "audit.view":             ["OWNER", "ADMIN", "ACCOUNTANT", "AUDITOR"],
+
+  // ----- Document library (/documents) -----
+  // Read-only: the month folders of every uploaded bill, generated 80G receipt
+  // and organisation document. Grants no write anywhere — and not the bytes
+  // either, which /api/files releases only after its own org check.
+  "documents.view":         ["OWNER", "ADMIN", "ACCOUNTANT", "AUDITOR"],
 
   // ----- Compliance suite (Phase 5) -----
   "compliance.10bd.view":              ["OWNER", "ADMIN", "ACCOUNTANT", "AUDITOR"],

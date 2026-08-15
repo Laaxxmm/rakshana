@@ -32,7 +32,9 @@ export default async function CalendarPage() {
   void organisationId;
   const items = await prisma.complianceItem.findMany({
     orderBy: { dueDate: "asc" },
-    where: { status: { in: ["UPCOMING", "DUE", "OVERDUE"] } },
+    // GST is not a module of this app. Historical GST rows stay in the table
+    // but are never surfaced.
+    where: { status: { in: ["UPCOMING", "DUE", "OVERDUE"] }, category: { not: "GST" } },
   });
   const byCategory = new Map<string, typeof items>();
   for (const i of items) {
@@ -40,7 +42,7 @@ export default async function CalendarPage() {
     list.push(i);
     byCategory.set(i.category, list);
   }
-  const orderedCats = ["IT", "GST", "TDS", "FCRA", "TWELVE_A", "EIGHTY_G", "DARPAN", "INTERNAL"];
+  const orderedCats = ["IT", "TDS", "FCRA", "TWELVE_A", "EIGHTY_G", "DARPAN", "INTERNAL"];
 
   return (
     <div className="space-y-5">

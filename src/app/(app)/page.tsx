@@ -6,6 +6,7 @@ import {
   IconQrcode,
   IconReceipt,
 } from "@tabler/icons-react";
+import { Decimal } from "decimal.js";
 import { Card, CardContent } from "@/components/ui/card";
 import { prisma } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
@@ -42,7 +43,9 @@ export default async function DashboardPage() {
       }),
       prisma.expense.count({ where: { status: "PENDING_APPROVAL" } }),
       prisma.complianceItem.findMany({
-        where: { status: { in: ["OVERDUE", "DUE", "UPCOMING"] } },
+        // GST is not a module of this app. Historical GST rows stay in the
+        // table but are never surfaced.
+        where: { status: { in: ["OVERDUE", "DUE", "UPCOMING"] }, category: { not: "GST" } },
         orderBy: { dueDate: "asc" },
         take: 5,
       }),
@@ -72,27 +75,36 @@ export default async function DashboardPage() {
       }),
     ]);
 
+  // A percentage the compliance module has already rounded to 2dp, not a
+  // rupee figure — it is read here only to size a progress bar.
   const appliedPct = Number(rule85.applicationPercentage);
-  const totalIn = Number(moneyIn._sum.amount ?? 0);
-  const totalOut = Number(moneyOut._sum.grossAmount ?? 0);
+  const totalIn = new Decimal(moneyIn._sum.amount?.toString() ?? "0");
+  const totalOut = new Decimal(moneyOut._sum.grossAmount?.toString() ?? "0");
 
   // Bucket into months in JS rather than a raw GROUP BY — the row counts
   // here are small, and this keeps the query on the tenancy-scoped client.
   const buckets = Array.from({ length: MONTHS_SHOWN }, (_, i) => {
     const d = new Date(trendFrom.getFullYear(), trendFrom.getMonth() + i, 1);
-    return { label: d.toLocaleString("en-IN", { month: "short" }), key: monthKey(d), in: 0, out: 0 };
+    return {
+      label: d.toLocaleString("en-IN", { month: "short" }),
+      key: monthKey(d),
+      in: new Decimal(0),
+      out: new Decimal(0),
+    };
   });
   const byKey = new Map(buckets.map((b) => [b.key, b]));
   for (const d of trendIn) {
     const b = byKey.get(monthKey(d.donationDate));
-    if (b) b.in += Number(d.amount);
+    if (b) b.in = b.in.plus(d.amount.toString());
   }
   for (const e of trendOut) {
     const b = byKey.get(monthKey(e.expenseDate));
-    if (b) b.out += Number(e.grossAmount);
+    if (b) b.out = b.out.plus(e.grossAmount.toString());
   }
-  const peak = Math.max(1, ...buckets.map((b) => Math.max(b.in, b.out)));
-  const hasTrend = buckets.some((b) => b.in > 0 || b.out > 0);
+  // Each bar is drawn as a share of the tallest month. The floor of ₹1 is
+  // what keeps an all-zero year from dividing by zero.
+  const peak = Decimal.max(1, ...buckets.flatMap((b) => [b.in, b.out]));
+  const hasTrend = buckets.some((b) => b.in.gt(0) || b.out.gt(0));
 
   return (
     <div className="space-y-6 pt-6">
@@ -120,14 +132,14 @@ export default async function DashboardPage() {
       <section className="grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Money in"
-          value={formatINRWithSymbol(totalIn.toString(), { paise: false })}
+          value={formatINRWithSymbol(totalIn, { paise: false })}
           caption={`${moneyIn._count._all} ${moneyIn._count._all === 1 ? "donation" : "donations"}`}
           accent="var(--success)"
           href="/donations"
         />
         <StatCard
           label="Money out"
-          value={formatINRWithSymbol(totalOut.toString(), { paise: false })}
+          value={formatINRWithSymbol(totalOut, { paise: false })}
           caption={`${moneyOut._count._all} ${moneyOut._count._all === 1 ? "voucher" : "vouchers"}`}
           accent="var(--warning)"
           href="/expenses"
@@ -172,8 +184,8 @@ export default async function DashboardPage() {
                 {buckets.map((b) => (
                   <div key={b.key} className="flex flex-1 flex-col items-center gap-1.5">
                     <div className="flex h-28 w-full items-end justify-center gap-[3px]">
-                      <Bar value={b.in} peak={peak} colour="var(--success)" title={`In ${formatINRWithSymbol(b.in.toString(), { paise: false })}`} />
-                      <Bar value={b.out} peak={peak} colour="var(--warning)" title={`Out ${formatINRWithSymbol(b.out.toString(), { paise: false })}`} />
+                      <Bar value={b.in} peak={peak} colour="var(--success)" title={`In ${formatINRWithSymbol(b.in, { paise: false })}`} />
+                      <Bar value={b.out} peak={peak} colour="var(--warning)" title={`Out ${formatINRWithSymbol(b.out, { paise: false })}`} />
                     </div>
                     <span className="text-[10px] text-ink-subtle">{b.label}</span>
                   </div>
@@ -346,18 +358,22 @@ function Bar({
   colour,
   title,
 }: {
-  value: number;
-  peak: number;
+  value: Decimal;
+  peak: Decimal;
   colour: string;
   title: string;
 }) {
-  // Floor at 2px so a non-zero month is never invisible.
-  const h = value === 0 ? 0 : Math.max(2, Math.round((value / peak) * 112));
+  // Height is a share of the tallest bar rendered in pixels — the one figure
+  // on this card that is a proportion rather than money. Floor at 2px so a
+  // non-zero month is never invisible.
+  const h = value.isZero()
+    ? 0
+    : Math.max(2, Math.round(value.div(peak).times(112).toNumber()));
   return (
     <div
       title={title}
       className="w-1/2 rounded-t-[3px] transition-all"
-      style={{ height: `${h}px`, backgroundColor: colour, opacity: value === 0 ? 0 : 1 }}
+      style={{ height: `${h}px`, backgroundColor: colour, opacity: value.isZero() ? 0 : 1 }}
     />
   );
 }
@@ -381,10 +397,13 @@ function daysLabel(days: number): string {
   return `${days}d`;
 }
 
+/**
+ * Where a due ComplianceItem takes you. Categories with no screen of their own
+ * fall to the calendar, which lists every category this app surfaces and so
+ * always has the item.
+ */
 function complianceItemHref(category: string): string {
   switch (category) {
-    case "GST":
-      return "/compliance/gst";
     case "TDS":
       return "/compliance/tds";
     case "IT":

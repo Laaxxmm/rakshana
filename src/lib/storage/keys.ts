@@ -13,6 +13,36 @@ import { formatIST } from "@/lib/format/date";
 
 const SAFE_EXT = /^[a-z0-9]{1,8}$/;
 
+/**
+ * Canonical form of a key, as every adapter stores and looks it up:
+ * forward slashes, no leading slash. Throws on `..` — the key reaching an
+ * adapter can come straight off the /api/files URL, and a local-FS adapter
+ * would happily join its way out of the storage root.
+ */
+export function normaliseKey(key: string): string {
+  const safe = key.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (safe.includes("..")) {
+    throw new Error(`[storage] rejected unsafe key: ${key}`);
+  }
+  return safe;
+}
+
+/**
+ * The organisation a key belongs to. Every key this module builds starts
+ * `org/{orgId}/`; a key that does not is not storable, because there would
+ * be no tenant to file the bytes under.
+ *
+ * Looser than `parseStorageKey`, deliberately: that one also validates the
+ * document kind, and adding a new key shape should not make it unstorable.
+ */
+export function orgIdFromKey(key: string): string {
+  const parts = normaliseKey(key).split("/");
+  if (parts[0] !== "org" || !parts[1]) {
+    throw new Error(`[storage] key is not org-scoped: ${key}`);
+  }
+  return parts[1];
+}
+
 function extFromMime(contentType: string): string {
   const map: Record<string, string> = {
     "application/pdf": "pdf",

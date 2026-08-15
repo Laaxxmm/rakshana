@@ -34,7 +34,6 @@ export default async function EditVendorPage({ params }: { params: Promise<{ id:
         defaults={{
           name: vendor.name,
           pan: vendor.pan ?? "",
-          gstin: vendor.gstin ?? "",
           defaultTdsSection: vendor.defaultTdsSection ?? "",
           addressLine1: vendor.addressLine1 ?? "",
           addressLine2: vendor.addressLine2 ?? "",

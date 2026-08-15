@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Decimal } from "decimal.js";
 import type { Expense, PaymentMode, Prisma } from "@prisma/client";
-import { safeAction } from "@/lib/actions/safe-action";
+import { safeAction, UserFacingError } from "@/lib/actions/safe-action";
 import { prisma, prismaUnsafe } from "@/lib/db/prisma";
 import {
   expenseDraftSchema,
@@ -36,18 +36,26 @@ export const createExpenseDraft = safeAction
   .metadata({ requires: "expense.create" })
   .inputSchema(expenseDraftSchema)
   .action(async ({ parsedInput, ctx }) => {
-    await assertFcraPaymentRoute(parsedInput);
-    const { tdsResult, gstResult } = await derivedAmounts(parsedInput);
+    const refs = await resolveExpenseRefs({
+      vendorId: parsedInput.vendorId,
+      categoryId: parsedInput.categoryId,
+      projectId: parsedInput.projectId,
+      bankAccountId: parsedInput.bankAccountId,
+      pettyCashFloatId: parsedInput.pettyCashFloatId,
+      ldcCertificateId: parsedInput.ldcCertificateId,
+    });
+    assertFcraPaymentRoute(refs, parsedInput);
+    const { tdsResult, gstResult } = derivedAmounts(parsedInput, refs.ldcCertificate);
 
     const created = await prisma.expense.create({
       data: {
         organisationId: ctx.scope.organisationId,
         voucherNumber: pendingVoucherPlaceholder(),
         expenseDate: parsedInput.expenseDate,
-        vendorId: parsedInput.vendorId,
+        vendorId: refs.vendor?.id ?? null,
         cashPayeeName: parsedInput.cashPayeeName,
-        categoryId: parsedInput.categoryId,
-        projectId: parsedInput.projectId,
+        categoryId: refs.category?.id ?? null,
+        projectId: refs.project?.id ?? null,
         grossAmount: parsedInput.grossAmount.toString(),
         tdsAmount: tdsResult.amount.toString(),
         tdsSection: parsedInput.tdsApplicable ? parsedInput.tdsSection : null,
@@ -59,10 +67,10 @@ export const createExpenseDraft = safeAction
         igst: gstResult.igst.toString(),
         isItcEligible: parsedInput.isItcEligible,
         mode: parsedInput.mode,
-        bankAccountId: parsedInput.bankAccountId,
+        bankAccountId: refs.bankAccount?.id ?? null,
         paymentRef: parsedInput.paymentRef,
         isPettyCash: parsedInput.isPettyCash,
-        pettyCashFloatId: parsedInput.pettyCashFloatId,
+        pettyCashFloatId: refs.pettyCashFloat?.id ?? null,
         description: parsedInput.description,
         billUrl: parsedInput.billUrl,
         status: "DRAFT",
@@ -80,10 +88,21 @@ export const createExpenseDraft = safeAction
 
 export const submitExpense = safeAction
   .metadata({ requires: "expense.submit" })
-  .inputSchema(expenseDraftSchema.extend({ expenseId: z.string().optional() }))
+  .inputSchema(expenseDraftSchema)
   .action(async ({ parsedInput, ctx }) => {
-    await assertFcraPaymentRoute(parsedInput);
-    const { tdsResult, gstResult } = await derivedAmounts(parsedInput);
+    // Resolved before the transaction, because the transaction below runs on
+    // `prismaUnsafe` and the tenancy extension does not reach inside it: every
+    // id it writes has to have been proven out here.
+    const refs = await resolveExpenseRefs({
+      vendorId: parsedInput.vendorId,
+      categoryId: parsedInput.categoryId,
+      projectId: parsedInput.projectId,
+      bankAccountId: parsedInput.bankAccountId,
+      pettyCashFloatId: parsedInput.pettyCashFloatId,
+      ldcCertificateId: parsedInput.ldcCertificateId,
+    });
+    assertFcraPaymentRoute(refs, parsedInput);
+    const { tdsResult, gstResult } = derivedAmounts(parsedInput, refs.ldcCertificate);
     const fy = getFinancialYear(parsedInput.expenseDate);
     const kind = parsedInput.isPettyCash ? "PETTY_CASH" : "GENERAL";
 
@@ -116,10 +135,10 @@ export const submitExpense = safeAction
           voucherNumber: allocated.voucherNumber,
           voucherSeriesId: allocated.seriesId,
           expenseDate: parsedInput.expenseDate,
-          vendorId: parsedInput.vendorId,
+          vendorId: refs.vendor?.id ?? null,
           cashPayeeName: parsedInput.cashPayeeName,
-          categoryId: parsedInput.categoryId,
-          projectId: parsedInput.projectId,
+          categoryId: refs.category?.id ?? null,
+          projectId: refs.project?.id ?? null,
           grossAmount: parsedInput.grossAmount.toString(),
           tdsAmount: tdsResult.amount.toString(),
           tdsSection: parsedInput.tdsApplicable ? parsedInput.tdsSection : null,
@@ -131,10 +150,10 @@ export const submitExpense = safeAction
           igst: gstResult.igst.toString(),
           isItcEligible: parsedInput.isItcEligible,
           mode: parsedInput.mode,
-          bankAccountId: parsedInput.bankAccountId,
+          bankAccountId: refs.bankAccount?.id ?? null,
           paymentRef: parsedInput.paymentRef,
           isPettyCash: parsedInput.isPettyCash,
-          pettyCashFloatId: parsedInput.pettyCashFloatId,
+          pettyCashFloatId: refs.pettyCashFloat?.id ?? null,
           description: parsedInput.description,
           billUrl: parsedInput.billUrl,
           status: autoApprove ? "APPROVED" : "PENDING_APPROVAL",
@@ -142,10 +161,12 @@ export const submitExpense = safeAction
         },
       });
 
-      // Petty cash balance enforcement
-      if (parsedInput.isPettyCash && parsedInput.pettyCashFloatId) {
+      // Petty cash balance enforcement. Keyed on the float resolved above, and
+      // re-read here so the balance the check reads is the one inside the
+      // transaction that is about to debit it.
+      if (parsedInput.isPettyCash && refs.pettyCashFloat) {
         const float = await tx.pettyCashFloat.findUniqueOrThrow({
-          where: { id: parsedInput.pettyCashFloatId },
+          where: { id: refs.pettyCashFloat.id },
         });
         const next = new Decimal(float.currentBalance.toString()).minus(
           parsedInput.grossAmount,
@@ -182,12 +203,12 @@ export const submitExpense = safeAction
           data: {
             organisationId: ctx.scope.organisationId,
             expenseId: expense.id,
-            deducteeName: parsedInput.vendorId
-              ? (await tx.vendor.findUniqueOrThrow({ where: { id: parsedInput.vendorId } })).name
-              : parsedInput.cashPayeeName ?? "Unspecified",
-            deducteePan: parsedInput.vendorId
-              ? (await tx.vendor.findUnique({ where: { id: parsedInput.vendorId } }))?.pan ?? null
-              : null,
+            // The deductee named here is filed in this organisation's Form 26Q
+            // (`aggregateTdsReturn` reads these rows), so the name and PAN come
+            // off the vendor the scoped resolve proved, never off a vendor id
+            // looked up on the unscoped transaction client.
+            deducteeName: refs.vendor?.name ?? parsedInput.cashPayeeName ?? "Unspecified",
+            deducteePan: refs.vendor?.pan ?? null,
             section: parsedInput.tdsSection,
             amountPaid: parsedInput.grossAmount.toString(),
             tdsRate: tdsResult.rate.toString(),
@@ -195,7 +216,7 @@ export const submitExpense = safeAction
             deductionDate: parsedInput.expenseDate,
             quarter: tdsQuarterForMonth(parsedInput.expenseDate.getMonth() + 1),
             financialYear: fy,
-            ldcCertificateId: parsedInput.ldcCertificateId,
+            ldcCertificateId: refs.ldcCertificate?.id ?? null,
             status: "ACTIVE",
           },
         });
@@ -277,7 +298,10 @@ export const uploadExpenseBill = safeAction
       maxSize: BILL_MAX,
       claimedMime: parsedInput.claimedMime,
     });
-    if (!v.ok) throw new Error(v.error);
+    // validateUpload's refusals name the size and the ceiling, so they are
+    // written for the uploader — thrown as UserFacingError they survive
+    // production masking in `handleServerError`.
+    if (!v.ok) throw new UserFacingError(v.error);
 
     const bill = await compressBill(raw);
 
@@ -415,6 +439,12 @@ export const rejectExpense = safeAction
       where: { id: parsedInput.expenseId },
     });
     assertTransition("reject", expense.status);
+    // Only the float, because that is the one row the reversal writes to. The
+    // voucher's other ids are left unresolved on purpose: voiding a voucher is
+    // the way out of a bad one, and it must not be blocked by them.
+    const { pettyCashFloat } = await resolveExpenseRefs({
+      pettyCashFloatId: expense.pettyCashFloatId,
+    });
     await prismaUnsafe.$transaction(async (tx) => {
       await tx.expense.update({ where: { id: expense.id }, data: { status: "REJECTED" } });
       await tx.expenseApproval.create({
@@ -435,7 +465,7 @@ export const rejectExpense = safeAction
           link: `/expenses?open=${expense.id}`,
         },
       });
-      await reverseExpensePostings(tx, expense);
+      await reverseExpensePostings(tx, expense, pettyCashFloat?.id ?? null);
     });
     revalidatePath("/expenses");
     revalidatePath("/approvals");
@@ -455,7 +485,11 @@ export const markExpensePaid = safeAction
     // public endpoint, so the override arrives untrusted. The FCRA route is
     // therefore re-asserted against the mode about to be persisted.
     const mode = parsedInput.modeOverride ?? expense.mode;
-    await assertFcraPaymentRoute({ ...expense, mode });
+    // The voucher's own stored ids, put back through the scoped client. A row
+    // pointing at another organisation's project, bank account, vendor,
+    // category or float is refused rather than settled.
+    const refs = await resolveExpenseRefs(expense);
+    assertFcraPaymentRoute(refs, { ...expense, mode });
     await prisma.expense.update({
       where: { id: expense.id },
       data: {
@@ -478,12 +512,17 @@ export const cancelExpense = safeAction
       where: { id: parsedInput.expenseId },
     });
     assertTransition("cancel", expense.status);
+    // See rejectExpense: the float is resolved because the reversal credits it,
+    // and nothing else is, because this is the way out of a bad voucher.
+    const { pettyCashFloat } = await resolveExpenseRefs({
+      pettyCashFloatId: expense.pettyCashFloatId,
+    });
     await prismaUnsafe.$transaction(async (tx) => {
       await tx.expense.update({
         where: { id: expense.id },
         data: { status: "CANCELLED" },
       });
-      await reverseExpensePostings(tx, expense);
+      await reverseExpensePostings(tx, expense, pettyCashFloat?.id ?? null);
     });
     await generateVoucherPdf(expense.id);
     revalidatePath("/expenses");
@@ -511,6 +550,69 @@ export const reopenExpense = safeAction
 // ---------------------------------------------------------------------------
 
 /**
+ * Every id `expenseDraftSchema` takes off the client, read back through the
+ * scoped `prisma`. Each read throws P2025 for a row belonging to another
+ * organisation, and the callers write the returned rows' own ids — including
+ * inside `prismaUnsafe.$transaction`, which the tenancy extension never
+ * reaches, so a raw `parsedInput` id would be honoured verbatim there.
+ *
+ * All six are nullable on the schema; a null stays null and is not a lookup.
+ */
+type ExpenseRefIds = {
+  vendorId?: string | null;
+  categoryId?: string | null;
+  projectId?: string | null;
+  bankAccountId?: string | null;
+  pettyCashFloatId?: string | null;
+  ldcCertificateId?: string | null;
+};
+
+async function resolveExpenseRefs(ids: ExpenseRefIds) {
+  const [vendor, category, project, bankAccount, pettyCashFloat, ldcCertificate] =
+    await Promise.all([
+      ids.vendorId
+        ? prisma.vendor.findUniqueOrThrow({
+            where: { id: ids.vendorId },
+            select: { id: true, name: true, pan: true },
+          })
+        : null,
+      ids.categoryId
+        ? prisma.expenseCategory.findUniqueOrThrow({
+            where: { id: ids.categoryId },
+            select: { id: true },
+          })
+        : null,
+      ids.projectId
+        ? prisma.project.findUniqueOrThrow({
+            where: { id: ids.projectId },
+            select: { id: true, isFcra: true },
+          })
+        : null,
+      ids.bankAccountId
+        ? prisma.bankAccount.findUniqueOrThrow({
+            where: { id: ids.bankAccountId },
+            select: { id: true, purpose: true },
+          })
+        : null,
+      ids.pettyCashFloatId
+        ? prisma.pettyCashFloat.findUniqueOrThrow({
+            where: { id: ids.pettyCashFloatId },
+            select: { id: true },
+          })
+        : null,
+      ids.ldcCertificateId
+        ? prisma.ldcCertificate.findUniqueOrThrow({
+            where: { id: ids.ldcCertificateId },
+            select: { id: true, lowerRate: true },
+          })
+        : null,
+    ]);
+  return { vendor, category, project, bankAccount, pettyCashFloat, ldcCertificate };
+}
+
+type ExpenseRefs = Awaited<ReturnType<typeof resolveExpenseRefs>>;
+
+/**
  * FCRA section 17: a foreign-contribution project may only be spent from the
  * organisation's designated FCRA bank account, so every cash route — petty
  * cash, a CASH/OTHER payment mode, or simply no bank account named — is
@@ -518,19 +620,17 @@ export const reopenExpense = safeAction
  * the payment route — draft, submit and the mark-paid override — so a voucher
  * can neither be built into a state submit will refuse nor be diverted to cash
  * after approval.
+ *
+ * It reads the project and the bank account off `refs`, never off the payload:
+ * `resolveExpenseRefs` has already refused a foreign id by then, so there is no
+ * lookup here that can come back empty and let an unreadable project decide the
+ * route is unrestricted.
  */
-async function assertFcraPaymentRoute(p: {
-  projectId: string | null;
-  mode: PaymentMode;
-  isPettyCash: boolean;
-  bankAccountId: string | null;
-}) {
-  if (!p.projectId) return;
-  const project = await prisma.project.findUnique({
-    where: { id: p.projectId },
-    select: { isFcra: true },
-  });
-  if (!project?.isFcra) return;
+function assertFcraPaymentRoute(
+  refs: Pick<ExpenseRefs, "project" | "bankAccount">,
+  p: { mode: PaymentMode; isPettyCash: boolean },
+) {
+  if (!refs.project?.isFcra) return;
 
   if (p.isPettyCash) {
     throw new Error("FCRA-tagged projects cannot be paid via petty cash.");
@@ -538,14 +638,7 @@ async function assertFcraPaymentRoute(p: {
   if (p.mode === "CASH" || p.mode === "OTHER") {
     throw new Error("FCRA-tagged projects cannot be paid in cash.");
   }
-  if (!p.bankAccountId) {
-    throw new Error("FCRA-tagged projects must be paid from an FCRA-only bank account.");
-  }
-  const bank = await prisma.bankAccount.findUnique({
-    where: { id: p.bankAccountId },
-    select: { purpose: true },
-  });
-  if (bank?.purpose !== "FCRA_ONLY") {
+  if (refs.bankAccount?.purpose !== "FCRA_ONLY") {
     throw new Error("FCRA-tagged projects must be paid from an FCRA-only bank account.");
   }
 }
@@ -576,16 +669,22 @@ async function assertFcraPaymentRoute(p: {
  *                       recorded in error — belongs in the float as a fresh
  *                       credit dated the day it lands, not as an unwind of a
  *                       debit the box has already honoured.
+ *
+ * `floatId` is the caller's already-resolved float, not `expense.pettyCashFloatId`.
+ * `tx` is the unscoped client, and a voucher raised before this file resolved
+ * its ids can carry a floatId belonging to another trust; crediting that one
+ * would put rupees into a cash register in a different organisation's books.
  */
 async function reverseExpensePostings(
   tx: Prisma.TransactionClient,
-  expense: Pick<Expense, "id" | "status" | "isPettyCash" | "pettyCashFloatId" | "grossAmount">,
+  expense: Pick<Expense, "id" | "status" | "isPettyCash" | "grossAmount">,
+  floatId: string | null,
 ) {
   const debitedButUnspent =
     expense.status === "PENDING_APPROVAL" || expense.status === "APPROVED";
-  if (debitedButUnspent && expense.isPettyCash && expense.pettyCashFloatId) {
+  if (debitedButUnspent && expense.isPettyCash && floatId) {
     const float = await tx.pettyCashFloat.findUniqueOrThrow({
-      where: { id: expense.pettyCashFloatId },
+      where: { id: floatId },
     });
     const next = new Decimal(float.currentBalance.toString()).plus(
       expense.grossAmount.toString(),
@@ -608,15 +707,14 @@ function pendingVoucherPlaceholder(): string {
   return `DRAFT/${Date.now()}/${++pendingCounter}`;
 }
 
-async function derivedAmounts(p: z.infer<typeof expenseDraftSchema>) {
-  // Resolve TDS context
-  let ldcRate: Decimal | null = null;
-  if (p.ldcCertificateId) {
-    const ldc = await prisma.ldcCertificate.findUnique({
-      where: { id: p.ldcCertificateId },
-    });
-    if (ldc) ldcRate = new Decimal(ldc.lowerRate.toString());
-  }
+function derivedAmounts(
+  p: z.infer<typeof expenseDraftSchema>,
+  ldc: ExpenseRefs["ldcCertificate"],
+) {
+  // The certificate is resolved by `resolveExpenseRefs`, so a lower rate here
+  // is one this organisation holds. An id it could not read never reaches this
+  // point to be quietly dropped back to the statutory rate.
+  const ldcRate = ldc ? new Decimal(ldc.lowerRate.toString()) : null;
   const tdsResult = p.tdsApplicable
     ? computeTds({
         grossAmount: p.grossAmount,

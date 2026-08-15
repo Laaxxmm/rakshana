@@ -6,7 +6,7 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import type { StorageAdapter, StorageKey, PutOptions, PutResult } from "./types";
-import { fileUrl } from "./keys";
+import { fileUrl, normaliseKey } from "./keys";
 
 const REQUIRED_ENV = [
   "R2_ACCOUNT_ID",
@@ -69,12 +69,7 @@ export class R2Adapter implements StorageAdapter {
   readonly name = "r2";
 
   private objectKey(key: StorageKey): string {
-    // Defence-in-depth: reject path traversal attempts.
-    const safe = key.replace(/\\/g, "/").replace(/^\/+/, "");
-    if (safe.includes("..")) {
-      throw new Error(`[storage] rejected unsafe key: ${key}`);
-    }
-    return safe;
+    return normaliseKey(key);
   }
 
   async put(key: StorageKey, data: Buffer, opts: PutOptions): Promise<PutResult> {

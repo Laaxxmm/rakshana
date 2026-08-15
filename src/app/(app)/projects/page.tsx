@@ -11,9 +11,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Decimal } from "decimal.js";
 import { prisma } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
+import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Projects — Rakshana" };
 
@@ -45,11 +47,15 @@ export default async function ProjectsPage({
       })
     : [];
   const spentByProject = new Map(
-    expensesAgg.map((e) => [e.projectId, Number(e._sum.grossAmount ?? 0)]),
+    expensesAgg.map((e) => [
+      e.projectId,
+      new Decimal(e._sum.grossAmount?.toString() ?? "0"),
+    ]),
   );
 
   return (
     <div className="space-y-5">
+      <HubNav hub="programmes" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">Programmes</p>
@@ -118,9 +124,13 @@ export default async function ProjectsPage({
               </TableHeader>
               <TableBody>
                 {projects.map((p) => {
-                  const budget = Number(p.totalBudget);
-                  const spent = spentByProject.get(p.id) ?? 0;
-                  const pct = budget > 0 ? Math.min(100, (spent / budget) * 100) : 0;
+                  const budget = new Decimal(p.totalBudget.toString());
+                  const spent = spentByProject.get(p.id) ?? new Decimal(0);
+                  // A share of the budget, not a rupee figure — safe to leave
+                  // the Decimal world once the division is done.
+                  const pct = budget.isPositive() && !budget.isZero()
+                    ? Math.min(100, spent.div(budget).times(100).toNumber())
+                    : 0;
                   const tone =
                     pct >= 100
                       ? "bg-[color:var(--danger)]"
@@ -159,7 +169,7 @@ export default async function ProjectsPage({
                         {formatINRWithSymbol(p.totalBudget.toString(), { paise: false })}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
-                        {formatINRWithSymbol(String(spent), { paise: false })}
+                        {formatINRWithSymbol(spent, { paise: false })}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /**
- * Sub-navigation for a hub. The sidebar carries four destinations; each of
- * those is a hub over several routes, and without this strip those routes
- * are only reachable by typing the URL.
+ * Sub-navigation for a hub. The sidebar rail carries one icon per hub; each
+ * hub spans several routes, and without this strip those routes are only
+ * reachable by typing the URL.
  *
  * Declared here rather than per page so a route can never be added to a hub
- * and silently left off the nav.
+ * and silently left off the nav. `src/app/(app)/routes.test.ts` treats this
+ * table plus the sidebar as the definition of "reachable" and fails on any
+ * page missing from both.
  */
 export const HUBS = {
   moneyIn: [
@@ -25,11 +27,16 @@ export const HUBS = {
     { href: "/recurring-expenses", label: "Recurring" },
     { href: "/banking", label: "Banking" },
   ],
+  programmes: [
+    { href: "/projects", label: "Projects" },
+    { href: "/beneficiaries", label: "Beneficiaries" },
+    { href: "/volunteers", label: "Volunteers" },
+    { href: "/volunteer-activities", label: "Activities" },
+  ],
   compliance: [
     { href: "/compliance", label: "Overview", exact: true },
     { href: "/compliance/10bd", label: "Form 10BD" },
     { href: "/compliance/income-tax", label: "Income tax" },
-    { href: "/compliance/gst", label: "GST" },
     { href: "/compliance/tds", label: "TDS" },
     { href: "/compliance/calendar", label: "Calendar" },
   ],

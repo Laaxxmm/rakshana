@@ -11,6 +11,11 @@
 #   - We force the install phase to run `prisma generate` (the package's
 #     postinstall script does this, but redundancy here makes failure
 #     modes easier to diagnose in Railway logs).
+#   - `ghostscript` is in nixPkgs for the `gs` binary `compressPdf`
+#     (src/lib/images/compress.ts) shells out to. It is needed at runtime, not
+#     just at build: without it an uploaded PDF bill is stored at its upload
+#     size instead of a few hundred KB. Uploads still succeed when it is
+#     absent, which is what lets local dev run without it.
 #
 # IMPORTANT: `prisma migrate deploy` does NOT run here. Railway only
 # injects DATABASE_URL at runtime, not at build time, so migrations would
@@ -19,7 +24,7 @@
 # after build with full access to runtime env vars.
 
 [phases.setup]
-nixPkgs = ["nodejs_22", "openssl"]
+nixPkgs = ["nodejs_22", "openssl", "ghostscript"]
 
 [phases.install]
 cmds = [

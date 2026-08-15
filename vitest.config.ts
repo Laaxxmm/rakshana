@@ -8,6 +8,16 @@ import path from "node:path";
 // unless the caller happened to export it in their shell.
 Object.assign(process.env, loadEnv("test", process.cwd(), ""));
 
+// Every worker builds its own Prisma pool, and Prisma's default is
+// (2 * cores + 1) connections each — which on this machine multiplies past
+// Postgres's max_connections and fails whichever suites happen to start last.
+// It reads exactly like flakiness. Cap the pool per worker instead of the
+// worker count, so the suite keeps its parallelism.
+const dbUrl = process.env["DATABASE_URL"];
+if (dbUrl && !dbUrl.includes("connection_limit")) {
+  process.env["DATABASE_URL"] = `${dbUrl}${dbUrl.includes("?") ? "&" : "?"}connection_limit=5`;
+}
+
 export default defineConfig({
   plugins: [react()],
   test: {

@@ -23,29 +23,109 @@ the thing exists, extend it. If it doesn't, add it after you ship.
 ## Database
 
 - `src/lib/db/prisma-base.ts` — the raw `PrismaClient`, globally cached in
-  dev. **Never import directly outside this module's two re-exports.**
+  dev. Import it directly only where the scoped client cannot exist:
+  `src/auth.ts` (the adapter runs before a session does) and `prisma/seed.ts`
+  (a CLI script). Everything else goes through the two re-exports below.
 - `src/lib/db/prisma.ts`:
   - `prisma` — scoped client. Use this for all domain queries.
-  - `prismaUnsafe` — unscoped. **Documented uses below.**
+  - `prismaUnsafe` — unscoped, and the same client `basePrisma` is, under a
+    name that shows up in review. **Callers listed below.**
   - Composed audit-log hook fires on every mutation of a scoped model
     (except AuditLog itself).
 - `src/lib/db/scoped-models.ts` — three sets: `SCOPED_MODELS`,
   `PARENT_SCOPED_MODELS` (no `organisationId` column, tenancy enforced via
   parent), `SYSTEM_MODELS`.
 
-### Documented `prismaUnsafe` callers
+### `prismaUnsafe` callers
 
-| Caller                                                       | Why                                         |
-|--------------------------------------------------------------|---------------------------------------------|
-| `src/auth.ts` (Prisma adapter, credentials provider)         | Auth runs before a session exists           |
-| `prisma/seed.ts`                                             | CLI script, no HTTP session                 |
-| `src/app/(app)/settings/organisation/page.tsx`               | Fetches the Organisation row by `scope.organisationId` (Organisation is a SYSTEM_MODEL) |
-| `src/lib/db/prisma.test.ts`                                  | Test setup / teardown                        |
-| `src/lib/payments/process-payment.ts`                        | Razorpay webhook has no session; the org comes from the `PaymentIntent` row, never the payload |
+45 production files, grouped by the reason the scoped client is not used —
+which is also what to check when you read one. Regenerate the list with:
 
-If you find yourself reaching for `prismaUnsafe` outside these, talk to the
-plan first. Most additions belong to one of these categories: auth, seed,
-test, or fetching the Organisation row.
+```sh
+grep -rl 'prismaUnsafe' src --include='*.ts' --include='*.tsx' \
+  | grep -v '\.test\.' | sort
+```
+
+That prints 47: the 45 below plus `src/lib/db/prisma.ts`, which defines the
+export, and `src/lib/db/scoped-models.ts`, which only mentions it in a comment.
+Test files are excluded above and not listed here — they set up and tear down
+rows for tenants that have no session, which is the whole point of the client.
+
+**No session exists.** Tenancy comes from a stored row or a storage key, never
+from the request payload.
+
+| Caller | What carries the tenant |
+|---|---|
+| `src/app/api/webhooks/razorpay/route.ts` | Signature-verified webhook; the `PaymentIntent` row it matches |
+| `src/lib/payments/process-payment.ts` | Same webhook; the org comes from the `PaymentIntent`, never the payload |
+| `src/lib/storage/postgres-adapter.ts` | The `org/{orgId}/` segment of the storage key; `/api/files` checks that segment against the session before reading |
+| `src/app/api/health/route.ts` | Nothing — `$queryRaw SELECT 1`, no tenant data |
+
+**System models.** `User`, `Organisation` and `Membership` are in
+`SYSTEM_MODELS`, so the extension scopes none of them and the organisation is
+named by hand in the filter.
+
+| Caller | Model |
+|---|---|
+| `src/app/(app)/settings/organisation/page.tsx` | Organisation, by `scope.organisationId` |
+| `src/app/(app)/settings/organisation/actions.ts` | Organisation, by `ctx.scope.organisationId` (identity, signatory, branding) |
+| `src/app/(app)/expenses/new/page.tsx` | Organisation |
+| `src/lib/reports/shared/pdf-renderer.ts`, `src/lib/reports/shared/excel-renderer.ts` | Organisation, for the report letterhead |
+| `src/app/(app)/petty-cash/page.tsx`, `src/app/(app)/projects/new/page.tsx`, `src/app/(app)/projects/[id]/edit/page.tsx` | User, filtered through `memberships.some.organisationId` |
+| `src/app/(app)/petty-cash/actions.ts` | Membership, to prove the custodian belongs to this trust |
+| `src/lib/audit/history.ts` | User, by the ids on audit rows already fetched through `prisma` |
+
+**Inside `$transaction`.** The extension does not reach `tx`, so every
+client-supplied id must be resolved through `prisma` *before* the transaction
+opens — each of these does it, and that resolve is what to check first.
+
+| Caller | Resolved before the transaction |
+|---|---|
+| `src/app/(app)/donations/actions.ts` | `projectId`, `bankAccountId` |
+| `src/app/(app)/expenses/actions.ts` | vendor, category, project, bank account, petty-cash float, LDC |
+| `src/app/(app)/petty-cash/actions.ts` | float, source bank account |
+| `src/app/(app)/projects/actions.ts` | the project — budget heads have no `organisationId`, so the project they hang off is the only tenancy proof |
+| `src/app/(app)/volunteers/actions.ts` | the assignment, via its scoped volunteer |
+| `src/lib/banking/primary.ts` | the account being promoted; the demote is then scoped to that row's own `organisationId` |
+| `src/lib/services/recurring-expense-runner.ts` | the templates and their `vendorId` / `categoryId` / `projectId` — plain columns with no relation behind them, so an id from outside the tenant would otherwise be copied onto a real Expense |
+
+**Explicit `organisationId` filter.** Reports and compliance aggregates take
+the org as a parameter that `src/app/(app)/reports/actions.ts` injects from the
+session ("so the client can't override it") and pass it into every `where`.
+Parent-scoped models are narrowed by ids that came back from an org-filtered
+read.
+
+| Caller | Notes |
+|---|---|
+| `src/lib/reports/audit-trail.ts`, `balance-sheet.ts`, `donor-wise.ts`, `fund-flow.ts`, `income-expenditure.ts`, `project-utilisation.ts`, `receipt-payment.ts`, `tds-quarterly.ts` | Every query names `organisationId` |
+| `src/lib/reports/beneficiary-impact.ts` | Projects by `organisationId`; enrolments, impact records and disbursements by ids from that result |
+| `src/lib/compliance/10bd-aggregator.ts`, `eighty-five-rule.ts`, `tds-return.ts` | FY-wide reads, `organisationId` in each `where` |
+| `src/lib/compliance/recurring-items.ts` | `ComplianceItem` lookup and create, `organisationId` from the caller in both |
+| `src/lib/compliance/itr7-figures.ts` | `FinancialYearSummary` upsert on the `organisationId_financialYear` key |
+| `src/app/(app)/reports/actions.ts` | Creates/updates the `Report` row with `organisationId` written by hand |
+| `src/app/(app)/compliance/10bd/actions.ts`, `src/app/(app)/compliance/income-tax/itr7/actions.ts` | Compound-unique keys that carry `organisationId` (`organisationId_financialYear[_filingType]`) |
+| `src/app/(app)/compliance/income-tax/form-10/actions.ts` | `Accumulation` create with `organisationId` from `ctx.scope` |
+| `src/app/(app)/projects/[id]/page.tsx` | `BeneficiaryEnrolment`, `UtilisationCertificate` — parent-scoped, read by a project id already resolved through `prisma` |
+
+**Trusts an id from its caller.** These take an id and read unscoped. They are
+safe only because every caller resolves it first; if you add a caller, resolve
+it there.
+
+| Caller | Id | Who resolves it today |
+|---|---|---|
+| `src/lib/pdf/voucher.ts` | `expenseId` | `src/app/(app)/expenses/actions.ts` — always an expense read back through `prisma` or created inside the action |
+| `src/lib/pdf/receipt-80g.ts` | `donationId` | `src/app/(app)/donations/actions.ts`, and `src/lib/payments/process-payment.ts` where the id comes off the `PaymentIntent` |
+| `src/lib/notify/dispatch.ts` | `donationId` | The same two; its doc comment states the requirement |
+| `src/lib/pdf/utilisation-certificate.ts` | `projectId`, `donorId` | `generateUtilCert` in `src/app/(app)/projects/actions.ts` resolves both through `prisma` first — a foreign id would burn a number from the victim's UTILISATION series |
+| `src/lib/pdf/volunteer-certificate.ts` | `volunteerId` | `generateVolCert` in `src/app/(app)/volunteers/actions.ts`, same reason |
+| `src/lib/pdf/form-10be.ts` | `filingId`, `donorId` | `src/app/(app)/compliance/10bd/actions.ts` resolves both; the module also re-matches the donor against `filing.organisationId` itself |
+
+The last three open a `$transaction` to allocate a certificate number and
+write the row together, so both rules apply to them.
+
+If you reach for `prismaUnsafe` outside these shapes, talk to the plan first.
+An addition that fits none of the five groups is almost always a scoped query
+written against the wrong client.
 
 ## Formatting
 

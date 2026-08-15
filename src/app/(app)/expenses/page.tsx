@@ -11,53 +11,84 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Decimal } from "decimal.js";
 import { prisma } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
-import { formatIST, getCurrentFY, getFinancialYearRange } from "@/lib/format/date";
+import { formatIST, getFinancialYear, resolvePeriod } from "@/lib/format/date";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { roleHasPermission } from "@/lib/auth/permissions";
+import { DateRangeFilter } from "@/components/patterns/DateRangeFilter";
+import { StatRow } from "@/components/patterns/StatRow";
 import { ExpenseDrawer, type ExpenseDrawerData } from "./ExpenseDrawer";
 import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Expenses — Rakshana" };
 
+/** Rows in the table. The headline figures cover the whole period regardless. */
+const LIST_LIMIT = 200;
+
 export default async function ExpensesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fy?: string; open?: string; status?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    from?: string;
+    to?: string;
+    fy?: string;
+    open?: string;
+    status?: string;
+  }>;
 }) {
-  const { fy: fyParam, open, status } = await searchParams;
-  const fy = fyParam ?? getCurrentFY();
-  const { start, end } = getFinancialYearRange(fy);
+  const params = await searchParams;
+  const { open, status } = params;
+  const range = resolvePeriod(params);
   const scope = await requireOrgScope();
 
-  const expenses = await prisma.expense.findMany({
-    where: {
-      expenseDate: { gte: start, lt: end },
-      ...(status ? { status: status as never } : {}),
-    },
-    orderBy: { expenseDate: "desc" },
-    include: {
-      vendor: { select: { id: true, name: true, pan: true } },
-      category: { select: { name: true } },
-      project: { select: { name: true, code: true } },
-    },
-    take: 200,
-  });
+  const where = {
+    expenseDate: { gte: range.start, lt: range.endExclusive },
+    ...(status ? { status: status as never } : {}),
+  };
 
-  const aggregate = expenses.reduce(
-    (acc, e) => {
-      if (e.status !== "CANCELLED") {
-        acc.gross = acc.gross + Number(e.grossAmount);
-        acc.tds = acc.tds + Number(e.tdsAmount);
-        acc.net = acc.net + Number(e.netPayable);
-        acc.gstItc = acc.gstItc + Number(e.cgst) + Number(e.sgst) + Number(e.igst);
-        acc.count += 1;
-      }
-      return acc;
-    },
-    { gross: 0, tds: 0, net: 0, gstItc: 0, count: 0 },
-  );
+  const [expenses, totals] = await Promise.all([
+    prisma.expense.findMany({
+      where,
+      orderBy: { expenseDate: "desc" },
+      include: {
+        vendor: { select: { id: true, name: true, pan: true } },
+        category: { select: { name: true } },
+        project: { select: { name: true, code: true } },
+      },
+      take: LIST_LIMIT,
+    }),
+    // Money comes back from the database over the whole period, so the
+    // headline stays true when the table below is capped at LIST_LIMIT rows.
+    // The `status` override is deliberate: cancelled vouchers are listed but
+    // never counted, whatever status the caller filtered by.
+    prisma.expense.aggregate({
+      where: { ...where, status: { not: "CANCELLED" } },
+      _sum: { grossAmount: true, tdsAmount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const sum = (value: { toString(): string } | null) => new Decimal(value?.toString() ?? "0");
+  const aggregate = {
+    gross: sum(totals._sum.grossAmount),
+    tds: sum(totals._sum.tdsAmount),
+    count: totals._count._all,
+  };
+
+  // Preserved when opening a row, so the drawer does not drop the filter.
+  const listQuery = new URLSearchParams([
+    ...(range.preset === "custom"
+      ? [
+          ["period", "custom"],
+          ["from", range.from],
+          ["to", range.to],
+        ]
+      : [["period", range.preset]]),
+    ...(status ? [["status", status]] : []),
+  ]).toString();
 
   const opened = open ? expenses.find((e) => e.id === open) : null;
   const drawer: ExpenseDrawerData | null = opened
@@ -96,12 +127,6 @@ export default async function ExpensesPage({
           >
             Expenses
           </h1>
-          <p className="text-sm text-ink-muted">
-            FY {fy} · Gross {formatINRWithSymbol(String(aggregate.gross), { paise: true })} ·{" "}
-            {aggregate.count} {aggregate.count === 1 ? "voucher" : "vouchers"} · TDS{" "}
-            {formatINRWithSymbol(String(aggregate.tds), { paise: true })} · GST ITC{" "}
-            {formatINRWithSymbol(String(aggregate.gstItc), { paise: true })}
-          </p>
         </div>
         <Link
           href="/expenses/new"
@@ -112,11 +137,30 @@ export default async function ExpensesPage({
         </Link>
       </header>
 
+      {/* The window sits with the control that sets it, not among the money
+          figures: which period is on is a fact about the filter. */}
+      <div className="space-y-2">
+        <DateRangeFilter basePath="/expenses" range={range} keep={{ status }} />
+        <p className="text-xs text-ink-muted">
+          Showing {range.label}: {range.rangeLabel}
+          {expenses.length === LIST_LIMIT ? `, latest ${LIST_LIMIT} rows` : ""}
+        </p>
+      </div>
+
+      {/* Figures cover the whole window; cancelled vouchers are left out. */}
+      <StatRow
+        stats={[
+          { label: aggregate.count === 1 ? "Voucher" : "Vouchers", value: aggregate.count },
+          { label: "Gross", value: formatINRWithSymbol(aggregate.gross, { paise: true }) },
+          { label: "TDS", value: formatINRWithSymbol(aggregate.tds, { paise: true }) },
+        ]}
+      />
+
       <Card>
         <CardContent className="p-0">
           {expenses.length === 0 ? (
             <div className="p-12 text-center">
-              <p className="font-display text-xl text-ink">No expenses in FY {fy} yet.</p>
+              <p className="font-display text-xl text-ink">No expenses in {range.label}.</p>
               <p className="mt-2 text-sm text-ink-muted">
                 <Link
                   href="/expenses/new"
@@ -146,7 +190,10 @@ export default async function ExpensesPage({
                   <TableRow key={e.id} className="hover:bg-primary-soft/30">
                     <TableCell className="text-xs">{formatIST(e.expenseDate)}</TableCell>
                     <TableCell className="font-mono text-xs">
-                      <Link href={`/expenses?fy=${fy}&open=${e.id}`} className="hover:underline">
+                      <Link
+                        href={`/expenses?${listQuery}&open=${e.id}`}
+                        className="hover:underline"
+                      >
                         {e.voucherNumber}
                       </Link>
                     </TableCell>
@@ -164,9 +211,9 @@ export default async function ExpensesPage({
                       {formatINRWithSymbol(e.grossAmount.toString(), { paise: true })}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {Number(e.tdsAmount) > 0
-                        ? formatINRWithSymbol(e.tdsAmount.toString(), { paise: true })
-                        : "—"}
+                      {e.tdsAmount.isZero()
+                        ? "—"
+                        : formatINRWithSymbol(e.tdsAmount.toString(), { paise: true })}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {formatINRWithSymbol(e.netPayable.toString(), { paise: true })}
@@ -187,10 +234,12 @@ export default async function ExpensesPage({
         </CardContent>
       </Card>
 
+      {/* The drawer closes onto `/expenses?fy=…`, so it is handed the FY the
+          window opens in — closing it lands on that year, not the period. */}
       {drawer ? (
         <ExpenseDrawer
           expense={drawer}
-          fy={fy}
+          fy={getFinancialYear(range.start)}
           canCancel={canCancel}
           canApprove={canApprove}
           canPay={canPay}

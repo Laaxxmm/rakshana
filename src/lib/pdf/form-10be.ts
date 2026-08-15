@@ -65,7 +65,19 @@ export async function generateForm10BeCertificate(
     throw new Error("10BD ARN not recorded. Mark the filing FILED with an ARN first.");
   }
 
-  const donor = await prismaUnsafe.donor.findUniqueOrThrow({ where: { id: input.donorId } });
+  // The donor has to be the filing's own. This module reads and writes through
+  // `prismaUnsafe` throughout, so nothing here is scoped by a session — the
+  // organisation comes off the filing row and the donor is matched against it.
+  //
+  // A donor belonging to another trust is refused with the same words as a
+  // donor of this trust's with nothing to certify, and before the row is read
+  // for anything: an error message must not tell a caller the name of a donor
+  // they were never entitled to see.
+  const NOTHING_TO_CERTIFY = `No qualifying donations for this donor in FY ${filing.financialYear}.`;
+  const donor = await prismaUnsafe.donor.findFirst({
+    where: { id: input.donorId, organisationId: filing.organisationId },
+  });
+  if (!donor) throw new Error(NOTHING_TO_CERTIFY);
 
   // Pull this donor's qualifying donations within the FY
   const { start, end } = getFyBounds(filing.financialYear);
@@ -79,9 +91,7 @@ export async function generateForm10BeCertificate(
       isInKind: false,
     },
   });
-  if (donations.length === 0) {
-    throw new Error(`No qualifying donations from ${donor.name} in FY ${filing.financialYear}.`);
-  }
+  if (donations.length === 0) throw new Error(NOTHING_TO_CERTIFY);
 
   const aggregateAmount = donations.reduce(
     (acc, d) => acc.plus(d.amount.toString()),

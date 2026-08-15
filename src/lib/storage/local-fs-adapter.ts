@@ -2,7 +2,7 @@ import { promises as fs, createReadStream, statSync } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import type { StorageAdapter, StorageKey, PutOptions, PutResult } from "./types";
-import { fileUrl } from "./keys";
+import { fileUrl, normaliseKey } from "./keys";
 
 const META_SUFFIX = ".meta.json";
 
@@ -22,12 +22,7 @@ export class LocalFsAdapter implements StorageAdapter {
   constructor(private readonly root: string) {}
 
   private absPath(key: StorageKey): string {
-    // Defence-in-depth: reject path traversal attempts.
-    const safe = key.replace(/\\/g, "/").replace(/^\/+/, "");
-    if (safe.includes("..")) {
-      throw new Error(`[storage] rejected unsafe key: ${key}`);
-    }
-    return path.join(this.root, safe);
+    return path.join(this.root, normaliseKey(key));
   }
 
   async put(key: StorageKey, data: Buffer, opts: PutOptions): Promise<PutResult> {

@@ -9,8 +9,8 @@ import { formatIST } from "@/lib/format/date";
 /**
  * Expense voucher PDF — mirrors the structure of the 80G receipt
  * (header / body / signature / cancellation watermark) but with the
- * voucher-specific blocks: gross / TDS / net, GST split, approval
- * timeline, "PAID" stamp.
+ * voucher-specific blocks: gross / TDS / net, approval timeline,
+ * "PAID" stamp.
  */
 export type VoucherGenerateResult = {
   buffer: Buffer;
@@ -166,11 +166,8 @@ function buildVoucher(doc: PDFKit.PDFDocument, exp: LoadedExpense) {
         width: colWidth,
       });
     }
-    const idLines: string[] = [];
-    if (exp.vendor.pan) idLines.push(`PAN: ${exp.vendor.pan}`);
-    if (exp.vendor.gstin) idLines.push(`GSTIN: ${exp.vendor.gstin}`);
-    if (idLines.length) {
-      doc.font("Courier").fontSize(9).fillColor(COLORS.ink).text(idLines.join("\n"), MARGIN, doc.y + 4, {
+    if (exp.vendor.pan) {
+      doc.font("Courier").fontSize(9).fillColor(COLORS.ink).text(`PAN: ${exp.vendor.pan}`, MARGIN, doc.y + 4, {
         width: colWidth,
       });
     }
@@ -235,34 +232,6 @@ function buildVoucher(doc: PDFKit.PDFDocument, exp: LoadedExpense) {
     MARGIN,
     doc.y + 2,
   );
-
-  // ----- GST block -----
-  if (exp.gstApplicable) {
-    const gstTop = doc.y + 16;
-    doc.rect(MARGIN, gstTop, CONTENT_WIDTH, 56).fillColor(COLORS.primarySoft).fill();
-    doc.font("Helvetica-Bold").fontSize(9).fillColor(COLORS.primary).text(
-      "GST",
-      MARGIN + 12,
-      gstTop + 8,
-      { continued: false },
-    );
-    const gstLines: string[] = [];
-    if (Number(exp.cgst.toString()) > 0)
-      gstLines.push(`CGST: ${formatINRWithSymbol(exp.cgst.toString(), { paise: true })}`);
-    if (Number(exp.sgst.toString()) > 0)
-      gstLines.push(`SGST: ${formatINRWithSymbol(exp.sgst.toString(), { paise: true })}`);
-    if (Number(exp.igst.toString()) > 0)
-      gstLines.push(`IGST: ${formatINRWithSymbol(exp.igst.toString(), { paise: true })}`);
-    gstLines.push(`ITC eligible: ${exp.isItcEligible ? "Yes" : "No"}`);
-    doc.font("Helvetica").fontSize(10).fillColor(COLORS.primary).text(
-      gstLines.join("  ·  "),
-      MARGIN + 12,
-      gstTop + 24,
-      { width: CONTENT_WIDTH - 24 },
-    );
-    // Skip past the band
-    doc.y = gstTop + 64;
-  }
 
   // ----- DESCRIPTION -----
   if (exp.description) {

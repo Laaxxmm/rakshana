@@ -34,19 +34,33 @@ export interface EmailAdapter {
 
 // ----- WhatsApp -----
 
+/**
+ * Text only. There is no media field: every receipt URL this app can mint is
+ * `/api/files/…`, which requires a session in the owning organisation, so it
+ * is unopenable by the donor and unfetchable by Meta. A media field would only
+ * ever carry a link that promises a document nobody outside the trust can
+ * reach. Adding one back means first adding a signed, expiring, single-purpose
+ * receipt route for it to point at.
+ */
 export type WhatsAppMessage = {
   /** E.164 phone number (e.g. +91987…). */
   to: string;
   templateName: string;
   /** Named substitutions for the template body. */
   params: Record<string, string>;
-  /** Optional file the recipient can tap to download (signed-URL'd PDF). */
-  mediaUrl?: string;
 };
 
 export type WhatsAppSendResult = { ok: true; id: string } | { ok: false; error: string };
 
 export interface WhatsAppAdapter {
   readonly name: string;
+  /**
+   * False when `send` only prepares a message a human still has to tap —
+   * the click-to-chat adapter builds a wa.me URL and nothing leaves the
+   * building. The dispatch layer reports those separately, because telling
+   * a volunteer a receipt was sent when it is sitting in a log is how a
+   * donor ends up without their 80G evidence and nobody chases it.
+   */
+  readonly delivers: boolean;
   send(msg: WhatsAppMessage): Promise<WhatsAppSendResult>;
 }

@@ -37,6 +37,8 @@ import type {
  */
 export class LinkWhatsAppAdapter implements WhatsAppAdapter {
   readonly name = "link";
+  /** The URL still has to be opened and tapped by a person. */
+  readonly delivers = false;
 
   async send(msg: WhatsAppMessage): Promise<WhatsAppSendResult> {
     const e164 = normalisePhone(msg.to);
@@ -64,7 +66,7 @@ export class LinkWhatsAppAdapter implements WhatsAppAdapter {
  *   "98765 43210"      → "919876543210"
  *   "+1 415 555 0100"  → "14155550100"
  */
-function normalisePhone(raw: string): string | null {
+export function normalisePhone(raw: string): string | null {
   const digits = raw.replace(/[^\d]/g, "");
   if (digits.length === 10) return `91${digits}`; // assume India
   if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
@@ -73,31 +75,21 @@ function normalisePhone(raw: string): string | null {
 }
 
 /**
- * Build the prefilled message text. Special keys the dispatch layer can
- * pass through `params`:
- *   - `body`    → the full message; if present, used verbatim
- *   - `link`    → appended on its own line with a "📎 Receipt:" prefix
+ * Build the prefilled message text. A `body` param is the whole message and
+ * is used verbatim; otherwise every param is rendered as a `Label: value`
+ * line.
  *
- * Otherwise we render every param as `Label: value` lines.
+ * Nothing is appended. A `wa.me` URL carries text and nothing else, so a line
+ * announcing an attachment would be describing something that cannot be in
+ * the message — the volunteer attaches the PDF by hand in WhatsApp, after
+ * this text is already written.
  */
 function buildMessageText(msg: WhatsAppMessage): string {
-  if (msg.params["body"]) {
-    let body = msg.params["body"];
-    if (msg.mediaUrl) {
-      body += `\n\n📎 Receipt: ${msg.mediaUrl}`;
-    } else if (msg.params["link"]) {
-      body += `\n\n📎 ${msg.params["link"]}`;
-    }
-    return body;
-  }
-  const lines: string[] = [];
-  for (const [k, v] of Object.entries(msg.params)) {
-    if (k === "link") continue;
-    lines.push(`${humanise(k)}: ${v}`);
-  }
-  if (msg.mediaUrl) lines.push(`📎 Receipt: ${msg.mediaUrl}`);
-  else if (msg.params["link"]) lines.push(`📎 ${msg.params["link"]}`);
-  return lines.join("\n");
+  const body = msg.params["body"];
+  if (body) return body;
+  return Object.entries(msg.params)
+    .map(([k, v]) => `${humanise(k)}: ${v}`)
+    .join("\n");
 }
 
 function humanise(key: string): string {

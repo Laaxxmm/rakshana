@@ -17,13 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatIST, getCurrentFY } from "@/lib/format/date";
+import { getCurrentFY } from "@/lib/format/date";
 import { generateReport } from "../actions";
 import type { ReportSlug } from "@/lib/reports/registry";
 
 /**
- * Universal wizard for all 10 reports. The shape of `params` differs
- * per slug — we render the right input set with a small switch.
+ * Universal wizard for every report in REPORT_REGISTRY. The shape of
+ * `params` differs per slug — we render the right input set with a small
+ * switch, and slugs with no arm of their own get the financial-year box.
  *
  * The submit handler doesn't try to type-narrow — it sends whatever
  * params the user filled and lets the server-side validator reject
@@ -36,21 +37,16 @@ export function ReportWizard({
   slug: ReportSlug;
   hasPdf: boolean;
 }) {
-  // Defaults — current FY for the FY-scoped reports. Both helpers convert an
-  // instant into Asia/Kolkata, so the FY and month are the ones the reports
-  // themselves work in and not the ones the viewer's machine happens to be in:
-  // a browser in New York and the server rendering the same page each convert
-  // their own clock into IST and land on the same string.
+  // Defaults — current FY for the FY-scoped reports. `getCurrentFY` converts
+  // the instant into Asia/Kolkata, so the FY is the one the reports themselves
+  // work in and not the one the viewer's machine happens to be in: a browser in
+  // New York and the server rendering the same page each convert their own
+  // clock into IST and land on the same string.
   const defaultFy = getCurrentFY();
   const fyStartYear = Number(defaultFy.slice(0, 4));
-  const defaultMonth = formatIST(new Date(), "yyyy-MM");
 
   const [fy, setFy] = useState(defaultFy);
   const [quarter, setQuarter] = useState<"Q1" | "Q2" | "Q3" | "Q4">("Q1");
-  const [scope, setScope] = useState<"MONTH" | "FY">("FY");
-  // Only the MONTH scope of gst-summary submits `period`; its FY scope submits
-  // `fy`, like every other FY-scoped report.
-  const [period, setPeriod] = useState(defaultMonth);
   // `from`/`to` are inclusive IST days — `to` is the last day inside the
   // report, not the day after it. The reports reading them (audit-trail,
   // beneficiary-impact) query up to the IST midnight that closes `to`, so
@@ -72,14 +68,11 @@ export function ReportWizard({
       slug,
       fy,
       quarter,
-      scope,
-      period,
       from,
       to,
       otherIncome,
       interestIncome,
       loansRepaid,
-      defaultMonth,
     });
     start(async () => {
       const r = await generateReport({ slug, params });
@@ -105,10 +98,6 @@ export function ReportWizard({
             setFy,
             quarter,
             setQuarter,
-            scope,
-            setScope,
-            period,
-            setPeriod,
             from,
             setFrom,
             to,
@@ -177,10 +166,6 @@ type InputState = {
   setFy: (v: string) => void;
   quarter: "Q1" | "Q2" | "Q3" | "Q4";
   setQuarter: (v: "Q1" | "Q2" | "Q3" | "Q4") => void;
-  scope: "MONTH" | "FY";
-  setScope: (v: "MONTH" | "FY") => void;
-  period: string;
-  setPeriod: (v: string) => void;
   from: string;
   setFrom: (v: string) => void;
   to: string;
@@ -256,50 +241,6 @@ function renderInputs(s: InputState) {
           </div>
         </div>
       );
-    case "gst-summary":
-      return (
-        <div className="space-y-3">
-          <div>
-            <Label>Scope</Label>
-            <div className="flex gap-2">
-              {(["MONTH", "FY"] as const).map((v) => (
-                <Button
-                  key={v}
-                  type="button"
-                  variant={s.scope === v ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => s.setScope(v)}
-                >
-                  {v === "MONTH" ? "Single month" : "Full FY"}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="period">
-              {s.scope === "MONTH" ? "Period (YYYY-MM)" : "FY (YYYY-YY)"}
-            </Label>
-            {/*
-              One box, two states: `buildParams` submits `period` under MONTH
-              scope and `fy` under FY, so the box reads and writes whichever of
-              the two this scope sends. Binding it to one alone leaves the
-              other scope's typing unread, and the report runs on a default the
-              screen no longer shows.
-            */}
-            <Input
-              id="period"
-              value={s.scope === "MONTH" ? s.period : s.fy}
-              onChange={(e) =>
-                s.scope === "MONTH"
-                  ? s.setPeriod(e.target.value)
-                  : s.setFy(e.target.value)
-              }
-              placeholder={s.scope === "MONTH" ? "2024-09" : "2024-25"}
-              className="font-mono"
-            />
-          </div>
-        </div>
-      );
     case "audit-trail":
     case "beneficiary-impact":
       return fromTo;
@@ -357,23 +298,15 @@ function buildParams(s: {
   slug: ReportSlug;
   fy: string;
   quarter: "Q1" | "Q2" | "Q3" | "Q4";
-  scope: "MONTH" | "FY";
-  period: string;
   from: string;
   to: string;
   otherIncome: string;
   interestIncome: string;
   loansRepaid: string;
-  defaultMonth: string;
 }): Record<string, unknown> {
   switch (s.slug) {
     case "tds-quarterly":
       return { financialYear: s.fy, quarter: s.quarter };
-    case "gst-summary":
-      return {
-        scope: s.scope,
-        period: s.scope === "FY" ? s.fy : s.period || s.defaultMonth,
-      };
     case "audit-trail":
       return { from: s.from, to: s.to };
     case "beneficiary-impact":

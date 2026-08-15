@@ -3,22 +3,12 @@
 import * as React from "react";
 import { useAction } from "next-safe-action/hooks";
 import { toast } from "sonner";
-import {
-  IconBrandWhatsapp,
-  IconCopy,
-  IconDownload,
-  IconMail,
-  IconRefresh,
-} from "@tabler/icons-react";
+import { IconBrandWhatsapp, IconCopy, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { DonationReceiptActions } from "@/components/patterns/DonationReceiptActions";
 import { formatINRWithSymbol } from "@/lib/format/inr";
-import {
-  markWhatsAppSent,
-  prepareWhatsAppLink,
-  regenerateReceipt,
-  resendReceipt,
-} from "../actions";
+import { regenerateReceipt } from "../actions";
 import { getCollectionStatus, type CollectionStatus } from "./actions";
 
 const POLL_MS = 4_000;
@@ -86,23 +76,6 @@ export function CollectionPanel({
     onError: ({ error }) =>
       toast.error(error.serverError ?? "Could not generate the receipt"),
   });
-  const resend = useAction(resendReceipt, {
-    onSuccess: () => toast.success("Receipt emailed"),
-    onError: ({ error }) => toast.error(error.serverError ?? "Could not send the email"),
-  });
-  const markWA = useAction(markWhatsAppSent, {});
-  const donationIdForWA = React.useRef<string | null>(null);
-  const prepWA = useAction(prepareWhatsAppLink, {
-    onSuccess: ({ data }) => {
-      if (!data?.url) return;
-      // The volunteer reviews the message and taps Send inside WhatsApp.
-      window.open(data.url, "_blank", "noopener,noreferrer");
-      toast.success(`WhatsApp opening for ${data.donorName}…`);
-      const id = donationIdForWA.current;
-      if (id) void markWA.execute({ donationId: id });
-    },
-    onError: ({ error }) => toast.error(error.serverError ?? "Could not build the link"),
-  });
 
   return (
     <Card>
@@ -160,41 +133,11 @@ export function CollectionPanel({
               title="Payment received"
               detail={`80G receipt no. ${status.receiptNumber} is ready for ${status.donorName}.`}
             />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                render={
-                  <a href={status.receiptUrl} target="_blank" rel="noreferrer" download />
-                }
-              >
-                <IconDownload />
-                Download receipt
-              </Button>
-              <Button
-                variant="outline"
-                disabled={!status.donorEmail || resend.isExecuting}
-                onClick={() => resend.execute({ donationId: status.donationId })}
-              >
-                <IconMail />
-                {resend.isExecuting ? "Sending…" : "Email receipt"}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={!status.donorWhatsApp || prepWA.isExecuting}
-                onClick={() => {
-                  donationIdForWA.current = status.donationId;
-                  prepWA.execute({ donationId: status.donationId });
-                }}
-              >
-                <IconBrandWhatsapp />
-                WhatsApp receipt
-              </Button>
-            </div>
-            {!status.donorEmail || !status.donorWhatsApp ? (
-              <p className="text-xs text-ink-subtle">
-                {missingChannelsNote(status.donorEmail, status.donorWhatsApp)}
-              </p>
-            ) : null}
+            <DonationReceiptActions
+              donationId={status.donationId}
+              donorEmail={status.donorEmail}
+              donorWhatsApp={status.donorWhatsApp}
+            />
           </>
         ) : null}
 
@@ -320,11 +263,4 @@ function StatusBand({
       {action}
     </div>
   );
-}
-
-function missingChannelsNote(donorEmail: string | null, donorWhatsApp: string | null): string {
-  const missing = [!donorEmail && "an email address", !donorWhatsApp && "a WhatsApp number"].filter(
-    (v): v is string => typeof v === "string",
-  );
-  return `This donor has no ${missing.join(" and ")} on file. Add one on the donor profile to enable that button.`;
 }

@@ -32,7 +32,14 @@ export default async function NewExpensePage({
       where: { isActive: true },
       orderBy: { name: "asc" },
     }),
-    vendorId ? prisma.vendor.findUnique({ where: { id: vendorId } }) : Promise.resolve(null),
+    // Explicit select: the form shows name, PAN and the TDS default, and the
+    // columns it does not show are the ones it must not carry to the browser.
+    vendorId
+      ? prisma.vendor.findUnique({
+          where: { id: vendorId },
+          select: { id: true, name: true, pan: true, defaultTdsSection: true },
+        })
+      : Promise.resolve(null),
     (await import("@/lib/db/prisma")).prismaUnsafe.organisation.findUniqueOrThrow({
       where: { id: scope.organisationId },
     }),
@@ -56,7 +63,6 @@ export default async function NewExpensePage({
         </h1>
       </header>
       <RecordExpenseForm
-        orgStateCode={org.stateCode ?? null}
         bankAccounts={bankAccounts.map((b) => ({
           id: b.id,
           bankName: b.bankName,
@@ -69,7 +75,6 @@ export default async function NewExpensePage({
           name: c.name,
           parentId: c.parentId,
           requiresProject: c.requiresProject,
-          defaultItcEligible: c.defaultItcEligible,
           fcraRestricted: c.fcraRestricted,
         }))}
         projects={projects.map((p) => ({ id: p.id, code: p.code, name: p.name }))}
@@ -84,9 +89,7 @@ export default async function NewExpensePage({
                 id: vendor.id,
                 name: vendor.name,
                 pan: vendor.pan,
-                gstin: vendor.gstin,
                 defaultTdsSection: vendor.defaultTdsSection,
-                stateCode: vendor.stateCode,
               }
             : null
         }

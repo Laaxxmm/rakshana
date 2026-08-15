@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
 import { toast } from "sonner";
 import {
@@ -13,6 +12,7 @@ import {
   IconUser,
   IconShieldCheck,
   IconChevronDown,
+  IconCircleCheck,
 } from "@tabler/icons-react";
 import { Decimal } from "decimal.js";
 import { recordDonation } from "../actions";
@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FieldError } from "@/components/patterns/FieldError";
+import { DonationReceiptActions } from "@/components/patterns/DonationReceiptActions";
 import { actionErrorMessage, actionFieldErrors } from "@/lib/actions/action-error";
 import { formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
@@ -159,8 +160,6 @@ export function RecordDonationForm({
   anonymous: Anonymous | null;
   initialDonor: Donor | null;
 }) {
-  const router = useRouter();
-
   const [isAnonymous, setIsAnonymous] = React.useState(false);
   const [moreOpen, setMoreOpen] = React.useState(false);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
@@ -294,15 +293,28 @@ export function RecordDonationForm({
     toast.error(errors[fields[0]]);
   }
 
+  /** What was submitted, read back in onSuccess — the fields are cleared by
+      then, and the receipt panel names the donation that was actually saved. */
+  const submitted = React.useRef<{ amount: string; donorName: string }>({
+    amount: "",
+    donorName: "",
+  });
+  const [recorded, setRecorded] = React.useState<{
+    donationId: string;
+    receiptNumber: string;
+    amount: string;
+    donorName: string;
+  } | null>(null);
+
   const submit = useAction(recordDonation, {
     onSuccess: ({ data }) => {
       if (!data?.ok) return;
-      toast.success(`Donation recorded · receipt ${data.receiptNumber}`, {
-        action: {
-          label: "View",
-          onClick: () => router.push(`/donations?fy=${fy}&open=${data.donationId}`),
-        },
+      setRecorded({
+        donationId: data.donationId,
+        receiptNumber: data.receiptNumber,
+        ...submitted.current,
       });
+      toast.success(`Donation recorded · receipt ${data.receiptNumber}`);
       // Reset for "Record another"; keep date + mode pre-filled.
       setAmountStr("");
       setLines([]);
@@ -335,6 +347,7 @@ export function RecordDonationForm({
       return;
     }
     setFieldErrors({});
+    submitted.current = { amount, donorName: effectiveDonor.name };
     submit.execute({
       // An unsaved donor travels as a payload, not an id — the server
       // creates it inside the donation transaction so an abandoned form
@@ -821,6 +834,42 @@ export function RecordDonationForm({
           </div>
         </div>
       </details>
+
+      {/* The receipt exists from here on, and this is where the volunteer is
+          standing — so handing it over happens here, not a screen away. */}
+      {recorded ? (
+        <div className="space-y-2 rounded-md border border-[color:var(--success)]/30 bg-[color:var(--success)]/8 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-ink">
+              <IconCircleCheck size={15} className="text-[color:var(--success)]" />
+              Receipt <span className="font-mono">{recorded.receiptNumber}</span>
+              {recorded.amount
+                ? ` · ${formatINRWithSymbol(recorded.amount, { paise: true })}`
+                : null}
+              {recorded.donorName ? ` · ${recorded.donorName}` : null}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Dismiss receipt"
+              onClick={() => setRecorded(null)}
+            >
+              <IconX size={14} />
+            </Button>
+          </div>
+          {/* The donor search does not carry email or WhatsApp, so the buttons
+              send without naming the destination and the toast reports where
+              it landed. */}
+          <DonationReceiptActions donationId={recorded.donationId} />
+          <Link
+            href={`/donations?fy=${fy}&open=${recorded.donationId}`}
+            className="inline-block text-xs text-primary hover:underline"
+          >
+            View donation
+          </Link>
+        </div>
+      ) : null}
 
       <div className="sticky bottom-0 flex items-center justify-between gap-2 rounded-md border border-border bg-surface p-3">
         <p className="text-[11px] text-ink-subtle">

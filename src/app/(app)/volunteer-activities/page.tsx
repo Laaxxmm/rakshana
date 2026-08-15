@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table";
 import { prisma } from "@/lib/db/prisma";
 import { formatIST } from "@/lib/format/date";
+import { HubNav } from "@/components/shell/HubNav";
 import { NewActivityButton } from "./NewActivityButton";
 
 export const metadata: Metadata = { title: "Volunteer activities — Rakshana" };
@@ -28,6 +29,7 @@ export default async function VolunteerActivitiesPage() {
 
   return (
     <div className="space-y-5">
+      <HubNav hub="programmes" />
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-ink-subtle">

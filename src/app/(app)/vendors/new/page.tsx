@@ -28,7 +28,6 @@ export default function NewVendorPage() {
         defaults={{
           name: "",
           pan: "",
-          gstin: "",
           defaultTdsSection: "",
           addressLine1: "",
           addressLine2: "",

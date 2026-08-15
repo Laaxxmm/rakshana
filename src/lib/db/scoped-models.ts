@@ -62,6 +62,14 @@ export const SCOPED_MODELS = new Set<string>([
   // Sponsorship catalogue
   "SponsorshipItem",
 
+  // Object storage. The bytes behind every /api/files URL. The only writer
+  // today is PostgresAdapter in src/lib/storage/postgres-adapter.ts, which
+  // takes the tenant from the key's `org/{orgId}/` segment and so uses
+  // `prismaUnsafe` — it is reached from the Razorpay webhook, where there is
+  // no session to scope by. Listed here so that anything that does reach for
+  // the scoped client gets the org filter rather than the whole table.
+  "StorageObject",
+
   // System per-tenant
   "Notification",
   "AuditLog",

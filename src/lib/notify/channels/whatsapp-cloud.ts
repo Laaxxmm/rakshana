@@ -17,6 +17,8 @@ import type { WhatsAppAdapter, WhatsAppMessage, WhatsAppSendResult } from "../ty
  */
 export class CloudWhatsAppAdapter implements WhatsAppAdapter {
   readonly name = "cloud";
+  /** Meta's Cloud API accepts the message and delivers it. */
+  readonly delivers = true;
 
   async send(_msg: WhatsAppMessage): Promise<WhatsAppSendResult> {
     throw new Error(

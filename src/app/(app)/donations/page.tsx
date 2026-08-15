@@ -11,41 +11,68 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Decimal } from "decimal.js";
 import { prisma } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
-import { formatIST, getCurrentFY, getFinancialYearRange } from "@/lib/format/date";
+import { formatIST, getFinancialYear, resolvePeriod } from "@/lib/format/date";
+import { DateRangeFilter } from "@/components/patterns/DateRangeFilter";
+import { StatRow } from "@/components/patterns/StatRow";
 import { DonationDrawer, type DonationDrawerData } from "./DonationDrawer";
 import { HubNav } from "@/components/shell/HubNav";
 
 export const metadata: Metadata = { title: "Donations — Rakshana" };
 
+/** Rows in the table. The headline figures count the whole period regardless. */
+const LIST_LIMIT = 200;
+
 export default async function DonationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fy?: string; open?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    from?: string;
+    to?: string;
+    fy?: string;
+    open?: string;
+  }>;
 }) {
-  const { fy: fyParam, open } = await searchParams;
-  const fy = fyParam ?? getCurrentFY();
-  const { start, end } = getFinancialYearRange(fy);
+  const params = await searchParams;
+  const { open } = params;
+  const range = resolvePeriod(params);
+  const donationDate = { gte: range.start, lt: range.endExclusive };
 
-  const donations = await prisma.donation.findMany({
-    where: { donationDate: { gte: start, lt: end } },
-    orderBy: { donationDate: "desc" },
-    include: { donor: { select: { id: true, name: true, pan: true, isAnonymousBucket: true } } },
-    take: 200,
-  });
+  const [donations, byDonor] = await Promise.all([
+    prisma.donation.findMany({
+      where: { donationDate },
+      orderBy: { donationDate: "desc" },
+      include: { donor: { select: { id: true, name: true, pan: true, isAnonymousBucket: true } } },
+      take: LIST_LIMIT,
+    }),
+    // Headline figures come back from the database over the whole period, so
+    // they stay true when the table below is capped at LIST_LIMIT rows.
+    prisma.donation.groupBy({
+      by: ["donorId"],
+      where: { donationDate, status: { not: "CANCELLED" } },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+  ]);
 
-  const stats = donations.reduce(
-    (acc, d) => {
-      if (d.status !== "CANCELLED") {
-        acc.total += Number(d.amount);
-        acc.count += 1;
-        acc.donors.add(d.donorId);
-      }
-      return acc;
-    },
-    { total: 0, count: 0, donors: new Set<string>() },
-  );
+  const stats = {
+    total: byDonor.reduce(
+      (sum, g) => sum.plus(g._sum.amount?.toString() ?? "0"),
+      new Decimal(0),
+    ),
+    count: byDonor.reduce((n, g) => n + g._count._all, 0),
+    donors: byDonor.length,
+  };
+
+  // Preserved when opening a row, so the drawer does not drop the filter.
+  const listQuery = new URLSearchParams(
+    range.preset === "custom"
+      ? { period: "custom", from: range.from, to: range.to }
+      : { period: range.preset },
+  ).toString();
 
   const openId = open ?? null;
   const opened = openId ? donations.find((d) => d.id === openId) : null;
@@ -76,11 +103,6 @@ export default async function DonationsPage({
           >
             Donations
           </h1>
-          <p className="text-sm text-ink-muted">
-            FY {fy} · {formatINRWithSymbol(String(stats.total), { paise: true })} ·{" "}
-            {stats.count} {stats.count === 1 ? "donation" : "donations"} ·{" "}
-            {stats.donors.size} unique {stats.donors.size === 1 ? "donor" : "donors"}
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -100,11 +122,30 @@ export default async function DonationsPage({
         </div>
       </header>
 
+      {/* The window sits with the control that sets it, not among the money
+          figures: which period is on is a fact about the filter. */}
+      <div className="space-y-2">
+        <DateRangeFilter basePath="/donations" range={range} />
+        <p className="text-xs text-ink-muted">
+          Showing {range.label}: {range.rangeLabel}
+          {donations.length === LIST_LIMIT ? `, latest ${LIST_LIMIT} rows` : ""}
+        </p>
+      </div>
+
+      {/* Figures cover the whole window; cancelled donations are left out. */}
+      <StatRow
+        stats={[
+          { label: stats.count === 1 ? "Donation" : "Donations", value: stats.count },
+          { label: "Received", value: formatINRWithSymbol(stats.total, { paise: true }) },
+          { label: stats.donors === 1 ? "Donor" : "Donors", value: stats.donors },
+        ]}
+      />
+
       <Card>
         <CardContent className="p-0">
           {donations.length === 0 ? (
             <div className="p-12 text-center">
-              <p className="font-display text-xl text-ink">No donations in FY {fy} yet.</p>
+              <p className="font-display text-xl text-ink">No donations in {range.label}.</p>
               <p className="mt-2 text-sm text-ink-muted">
                 <Link
                   href="/donations/new"
@@ -133,7 +174,10 @@ export default async function DonationsPage({
                   <TableRow key={d.id} className="hover:bg-primary-soft/30">
                     <TableCell className="text-xs">{formatIST(d.donationDate)}</TableCell>
                     <TableCell className="font-mono text-xs">
-                      <Link href={`/donations?fy=${fy}&open=${d.id}`} className="hover:underline">
+                      <Link
+                        href={`/donations?${listQuery}&open=${d.id}`}
+                        className="hover:underline"
+                      >
                         {d.receiptNumber}
                       </Link>
                     </TableCell>
@@ -177,7 +221,11 @@ export default async function DonationsPage({
         </CardContent>
       </Card>
 
-      {drawerData ? <DonationDrawer donation={drawerData} fy={fy} /> : null}
+      {/* The drawer closes onto `/donations?fy=…`, so it is handed the FY the
+          window opens in — closing it lands on that year, not the period. */}
+      {drawerData ? (
+        <DonationDrawer donation={drawerData} fy={getFinancialYear(range.start)} />
+      ) : null}
     </div>
   );
 }

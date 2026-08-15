@@ -3,8 +3,8 @@
 import "server-only";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { safeAction } from "@/lib/actions/safe-action";
-import { prismaUnsafe } from "@/lib/db/prisma";
+import { safeAction, UserFacingError } from "@/lib/actions/safe-action";
+import { prisma, prismaUnsafe } from "@/lib/db/prisma";
 import { storage, storageKey } from "@/lib/storage";
 import { REPORT_REGISTRY, REPORT_SLUGS, type ReportSlug } from "@/lib/reports/registry";
 
@@ -116,13 +116,36 @@ export const generateReport = safeAction
     }
   });
 
+/**
+ * Deleting a report takes its stored objects with it: the row's two storage
+ * keys are the app's only pointer to those bytes, so a row removed on its own
+ * leaves them unreachable and unaccounted for.
+ *
+ * The row is resolved through the scoped client first — a report id belonging
+ * to another organisation resolves to nothing, and the caller is told that
+ * rather than told the delete worked.
+ */
 export const deleteReport = safeAction
   .metadata({ requires: "report.delete" })
   .inputSchema(z.object({ id: z.string().min(1) }))
-  .action(async ({ parsedInput, ctx }) => {
-    await prismaUnsafe.report.deleteMany({
-      where: { id: parsedInput.id, organisationId: ctx.scope.organisationId },
+  .action(async ({ parsedInput }) => {
+    const report = await prisma.report.findUnique({
+      where: { id: parsedInput.id },
+      select: { id: true, excelStorageKey: true, pdfStorageKey: true },
     });
+    if (!report) {
+      throw new UserFacingError(
+        "That report is not in this organisation's records.",
+      );
+    }
+
+    await prisma.report.delete({ where: { id: report.id } });
+    // Idempotent in every adapter, so a key whose object was never written
+    // (a FAILED generation) is not an error.
+    for (const key of [report.excelStorageKey, report.pdfStorageKey]) {
+      if (key) await storage.remove(key);
+    }
+
     revalidatePath("/reports");
     return { ok: true };
   });

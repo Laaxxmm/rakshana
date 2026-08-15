@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Decimal } from "decimal.js";
 import { safeAction } from "@/lib/actions/safe-action";
-import { prismaUnsafe } from "@/lib/db/prisma";
+import { prisma, prismaUnsafe } from "@/lib/db/prisma";
 import { storage, storageKey } from "@/lib/storage";
 import { aggregateFor10BD, buildCsv } from "@/lib/compliance/10bd-aggregator";
 import { generateForm10BeCertificate } from "@/lib/pdf/form-10be";
@@ -191,9 +191,16 @@ export const generateOne10BeAction = safeAction
     const filing = await prismaUnsafe.form10BDFiling.findFirstOrThrow({
       where: { id: parsedInput.filingId, organisationId },
     });
+    // The certificate generator runs on `prismaUnsafe`; the donor is resolved
+    // through the scoped client here so a foreign id is refused at the door
+    // rather than travelling into it.
+    const donor = await prisma.donor.findUniqueOrThrow({
+      where: { id: parsedInput.donorId },
+      select: { id: true },
+    });
     const result = await generateForm10BeCertificate({
       filingId: filing.id,
-      donorId: parsedInput.donorId,
+      donorId: donor.id,
     });
     revalidatePath(`/compliance/10bd/${filing.id}`);
     return {

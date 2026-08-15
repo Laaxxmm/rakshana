@@ -17,8 +17,14 @@ export const createBeneficiary = safeAction
   .metadata({ requires: "beneficiary.create" })
   .inputSchema(beneficiarySchema)
   .action(async ({ parsedInput, ctx }) => {
+    // beneficiarySchema shares its address block with the donor and vendor
+    // forms, so it derives a GST state code from the state name. Beneficiary
+    // has no stateCode column and Prisma rejects the unknown argument, so it
+    // is dropped here.
+    const { stateCode, ...data } = parsedInput;
+    void stateCode;
     const created = await prisma.beneficiary.create({
-      data: { ...parsedInput } as never,
+      data: data as never,
     });
     void ctx;
     revalidatePath("/beneficiaries");
@@ -29,7 +35,10 @@ export const updateBeneficiary = safeAction
   .metadata({ requires: "beneficiary.update" })
   .inputSchema(beneficiarySchema.and(z.object({ id: z.string().min(1) })))
   .action(async ({ parsedInput }) => {
-    const { id, ...rest } = parsedInput;
+    // stateCode is derived by the shared address schema and has no column on
+    // Beneficiary; see createBeneficiary.
+    const { id, stateCode, ...rest } = parsedInput;
+    void stateCode;
     await prisma.beneficiary.update({ where: { id }, data: rest });
     revalidatePath("/beneficiaries");
     revalidatePath(`/beneficiaries/${id}`);
@@ -40,11 +49,22 @@ export const enrolBeneficiary = safeAction
   .metadata({ requires: "beneficiary.manage" })
   .inputSchema(beneficiaryEnrolmentSchema)
   .action(async ({ parsedInput }) => {
+    // BeneficiaryEnrolment carries no organisationId, so the extension passes
+    // its filters through verbatim. Both parents are resolved through the
+    // scoped client first: an enrolment puts a beneficiary on a project's
+    // roster, and it is what /beneficiaries widens a PROJECT_MANAGER's list
+    // by, so neither side may come from another tenant.
+    const beneficiary = await prisma.beneficiary.findUniqueOrThrow({
+      where: { id: parsedInput.beneficiaryId },
+    });
+    const project = await prisma.project.findUniqueOrThrow({
+      where: { id: parsedInput.projectId },
+    });
     try {
       await prisma.beneficiaryEnrolment.create({
         data: {
-          beneficiaryId: parsedInput.beneficiaryId,
-          projectId: parsedInput.projectId,
+          beneficiaryId: beneficiary.id,
+          projectId: project.id,
           enrolledOn: parsedInput.enrolledOn,
           remarks: parsedInput.remarks,
         },
@@ -56,8 +76,8 @@ export const enrolBeneficiary = safeAction
       }
       throw err;
     }
-    revalidatePath(`/beneficiaries/${parsedInput.beneficiaryId}`);
-    revalidatePath(`/projects/${parsedInput.projectId}`);
+    revalidatePath(`/beneficiaries/${beneficiary.id}`);
+    revalidatePath(`/projects/${project.id}`);
     return { ok: true };
   });
 
@@ -65,11 +85,17 @@ export const exitEnrolment = safeAction
   .metadata({ requires: "beneficiary.manage" })
   .inputSchema(exitEnrolmentSchema)
   .action(async ({ parsedInput }) => {
-    const enrolment = await prisma.beneficiaryEnrolment.update({
-      where: { id: parsedInput.enrolmentId },
+    // The enrolment id is only ours if the beneficiary holding it is: reaching
+    // the row through its scoped parent is what proves that, since the
+    // enrolment itself has no organisationId for the extension to filter on.
+    const beneficiary = await prisma.beneficiary.findFirstOrThrow({
+      where: { enrolments: { some: { id: parsedInput.enrolmentId } } },
+    });
+    await prisma.beneficiaryEnrolment.update({
+      where: { id: parsedInput.enrolmentId, beneficiaryId: beneficiary.id },
       data: { exitedOn: parsedInput.exitedOn, remarks: parsedInput.reason ?? undefined },
     });
-    revalidatePath(`/beneficiaries/${enrolment.beneficiaryId}`);
+    revalidatePath(`/beneficiaries/${beneficiary.id}`);
     return { ok: true };
   });
 
@@ -77,19 +103,29 @@ export const recordDisbursement = safeAction
   .metadata({ requires: "beneficiary.disbursement.create" })
   .inputSchema(disbursementSchema)
   .action(async ({ parsedInput }) => {
+    // BeneficiaryDisbursement has no organisationId of its own, and the value
+    // booked here is what /beneficiaries totals per beneficiary, so the
+    // recipient is resolved through the scoped client before anything is
+    // written against them.
+    const beneficiary = await prisma.beneficiary.findUniqueOrThrow({
+      where: { id: parsedInput.beneficiaryId },
+    });
+
     // If an expenseId is provided, verify the beneficiary is enrolled in the
-    // project that owns that expense.
+    // project that owns that expense. The scoped lookup also settles tenancy:
+    // the voucher and the recipient must be the same organisation's.
+    let expenseId: string | null = null;
     if (parsedInput.expenseId) {
-      const expense = await prisma.expense.findUnique({
+      const expense = await prisma.expense.findUniqueOrThrow({
         where: { id: parsedInput.expenseId },
-        select: { projectId: true },
+        select: { id: true, projectId: true },
       });
-      if (!expense?.projectId) {
+      if (!expense.projectId) {
         throw new Error("Linked expense is not tagged to a project.");
       }
       const enrolment = await prisma.beneficiaryEnrolment.findFirst({
         where: {
-          beneficiaryId: parsedInput.beneficiaryId,
+          beneficiaryId: beneficiary.id,
           projectId: expense.projectId,
         },
       });
@@ -98,19 +134,20 @@ export const recordDisbursement = safeAction
           "Cannot link disbursement to an expense from a project this beneficiary is not enrolled in.",
         );
       }
+      expenseId = expense.id;
     }
     await prisma.beneficiaryDisbursement.create({
       data: {
-        beneficiaryId: parsedInput.beneficiaryId,
+        beneficiaryId: beneficiary.id,
         disbursementDate: parsedInput.disbursementDate,
         type: parsedInput.type,
         value: parsedInput.value.toString(),
         description: parsedInput.description,
-        expenseId: parsedInput.expenseId,
+        expenseId,
         ackUrl: parsedInput.ackUrl,
       },
     });
-    revalidatePath(`/beneficiaries/${parsedInput.beneficiaryId}`);
+    revalidatePath(`/beneficiaries/${beneficiary.id}`);
     return { ok: true };
   });
 
@@ -118,16 +155,22 @@ export const recordImpactMetric = safeAction
   .metadata({ requires: "beneficiary.impact.create" })
   .inputSchema(impactRecordSchema)
   .action(async ({ parsedInput }) => {
+    // ImpactRecord has no organisationId; the beneficiary it hangs off is
+    // resolved through the scoped client so a foreign id cannot have a metric
+    // filed against it.
+    const beneficiary = await prisma.beneficiary.findUniqueOrThrow({
+      where: { id: parsedInput.beneficiaryId },
+    });
     await prisma.impactRecord.create({
       data: {
-        beneficiaryId: parsedInput.beneficiaryId,
+        beneficiaryId: beneficiary.id,
         recordDate: parsedInput.recordDate,
         metricName: parsedInput.metricName,
         metricValue: parsedInput.metricValue,
         notes: parsedInput.notes,
       },
     });
-    revalidatePath(`/beneficiaries/${parsedInput.beneficiaryId}`);
+    revalidatePath(`/beneficiaries/${beneficiary.id}`);
     return { ok: true };
   });
 

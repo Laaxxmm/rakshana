@@ -133,7 +133,6 @@ export default async function VendorProfilePage({ params }: { params: Promise<{ 
             </CardHeader>
             <CardContent className="grid gap-5 md:grid-cols-2">
               <ReadOnlyField label="PAN" value={vendor.pan} mono />
-              <ReadOnlyField label="GSTIN" value={vendor.gstin} mono />
               <ReadOnlyField label="Phone" value={vendor.phone} mono />
               <ReadOnlyField label="Email" value={vendor.email} />
               <ReadOnlyField

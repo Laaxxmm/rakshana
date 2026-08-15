@@ -32,4 +32,10 @@ export const whatsapp: WhatsAppAdapter =
   globalThis.__rakshanaWhatsApp ?? (globalThis.__rakshanaWhatsApp = buildWhatsApp());
 
 export type * from "./types";
-export { dispatchDonationReceipt } from "./dispatch";
+export { dispatchDonationReceipt, ensureReceiptPdf } from "./dispatch";
+export type { ReceiptDispatchResult } from "./dispatch";
+/** Shared with the click-to-chat action so both build the same wa.me number. */
+export { normalisePhone } from "./channels/whatsapp-link";
+/** Shared with the click-to-chat action so both send the donor the same words. */
+export { renderDonationReceiptWhatsApp } from "./templates/donation-receipt-whatsapp";
+export type { ReceiptWhatsAppInput } from "./templates/donation-receipt-whatsapp";

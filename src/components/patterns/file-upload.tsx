@@ -3,6 +3,7 @@
 import * as React from "react";
 import { IconUpload, IconX, IconFile, IconAlertCircle, IconLoader2 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { humanBytes, tooLargeMessage } from "@/lib/images/limits";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,7 +13,10 @@ import { cn } from "@/lib/utils";
  *
  * Server-side validation (magic-byte check) lives in
  * `src/lib/storage/validate.ts` and is enforced again in the Server Action,
- * not here. The browser check is for fast feedback only.
+ * not here. The browser check is not only for speed: an oversized file sent
+ * to a Server Action is base64-encoded, and Next.js rejects a body over its
+ * own limit with a framework error the user cannot act on. Refusing here is
+ * what turns that into a sentence naming the limit.
  */
 
 const DEFAULT_ALLOWED = ["application/pdf", "image/png", "image/jpeg"] as const;
@@ -30,6 +34,14 @@ export type FileUploadProps = {
   current?: { name: string; url?: string; size?: number; mime?: string } | null;
   accept?: readonly string[];
   maxBytes?: number;
+  /**
+   * Tighter ceiling applied to PDFs only, for screens whose Server Action
+   * caps them separately — the expense bill upload does, because a photo is
+   * reliably shrunk to WebP on arrival while a PDF is only shrunk if
+   * ghostscript can improve it (PDF_MAX_BYTES in `@/lib/images/limits`).
+   * Left unset, PDFs share `maxBytes`.
+   */
+  maxPdfBytes?: number;
   label?: string;
   hint?: string;
   pending?: boolean;
@@ -62,12 +74,11 @@ function useDropzone(onFiles: (files: FileList) => void) {
   return { dragging, handlers };
 }
 
-/** Shared by every screen that lists attached files. */
-export function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
+/**
+ * Shared by every screen that lists attached files. Same formatter the
+ * refusal messages use, so a file listed as "2.4 MB" is refused as "2.4 MB".
+ */
+export const humanSize = humanBytes;
 
 export function FileUpload({
   onSelect,
@@ -75,6 +86,7 @@ export function FileUpload({
   current,
   accept = DEFAULT_ALLOWED,
   maxBytes = DEFAULT_MAX,
+  maxPdfBytes,
   label = "Upload file",
   hint,
   pending,
@@ -92,16 +104,16 @@ export function FileUpload({
           setClientError(`File type ${file.type || "unknown"} is not allowed. Use ${accept.join(", ")}.`);
           continue;
         }
-        if (file.size > maxBytes) {
-          setClientError(
-            `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — maximum is ${(maxBytes / 1024 / 1024).toFixed(0)} MB.`,
-          );
+        const limit =
+          file.type === "application/pdf" && maxPdfBytes ? maxPdfBytes : maxBytes;
+        if (file.size > limit) {
+          setClientError(tooLargeMessage(file.name, file.size, limit));
           continue;
         }
         await onSelect(file);
       }
     },
-    [accept, maxBytes, multiple, onSelect],
+    [accept, maxBytes, maxPdfBytes, multiple, onSelect],
   );
 
   const { dragging, handlers } = useDropzone(handleFiles);
@@ -190,7 +202,8 @@ export function FileUpload({
             </span>
             <span className="text-xs text-ink-subtle">
               {accept.map((m) => m.replace("application/", "").replace("image/", "")).join(" · ")}
-              {" · max "} {(maxBytes / 1024 / 1024).toFixed(0)} MB
+              {` · max ${humanBytes(maxBytes)}`}
+              {maxPdfBytes ? ` (PDF ${humanBytes(maxPdfBytes)})` : null}
             </span>
           </div>
         </button>

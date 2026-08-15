@@ -11,12 +11,37 @@ export const createRecurringExpense = safeAction
   .metadata({ requires: "recurringExpense.manage" })
   .inputSchema(recurringExpenseSchema)
   .action(async ({ parsedInput }) => {
+    // RecurringExpense declares all three of these as plain columns with no
+    // relation, so the database stores whatever it is handed, and the row's
+    // own organisationId (injected by the extension) says nothing about where
+    // they point. Each is resolved through the scoped client first — the
+    // runner copies these onto real Expense vouchers, so a foreign id here is
+    // a foreign id on every voucher the template ever generates.
+    const vendor = parsedInput.vendorId
+      ? await prisma.vendor.findUniqueOrThrow({
+          where: { id: parsedInput.vendorId },
+          select: { id: true },
+        })
+      : null;
+    const category = parsedInput.categoryId
+      ? await prisma.expenseCategory.findUniqueOrThrow({
+          where: { id: parsedInput.categoryId },
+          select: { id: true },
+        })
+      : null;
+    const project = parsedInput.projectId
+      ? await prisma.project.findUniqueOrThrow({
+          where: { id: parsedInput.projectId },
+          select: { id: true },
+        })
+      : null;
+
     const created = await prisma.recurringExpense.create({
       data: {
         name: parsedInput.name,
-        vendorId: parsedInput.vendorId,
-        categoryId: parsedInput.categoryId,
-        projectId: parsedInput.projectId,
+        vendorId: vendor?.id ?? null,
+        categoryId: category?.id ?? null,
+        projectId: project?.id ?? null,
         amount: parsedInput.amount.toString(),
         frequency: parsedInput.frequency,
         nextDueDate: parsedInput.nextDueDate,

@@ -129,6 +129,7 @@ model Organisation {
   complianceItems    ComplianceItem[]
   sponsorshipItems   SponsorshipItem[]
   paymentIntents     PaymentIntent[]
+  storageObjects     StorageObject[]
 
   @@index([status])
 }
@@ -1815,4 +1816,40 @@ model ExpenseAttachment {
   uploadedById  String?
 
   @@index([expenseId])
+}
+
+// =====================================================================
+// 14. OBJECT STORAGE
+// =====================================================================
+
+/// The bytes behind every `/api/files/...` URL, held in Postgres.
+///
+/// The app runs in a container whose filesystem is replaced on each deploy,
+/// so a file written to disk is gone by the next one — and an 80G receipt
+/// has to stay readable, byte for byte, for as long as the trust is
+/// assessable. Postgres is the only durable store this deployment has, so
+/// the bytes live here. See src/lib/storage/postgres-adapter.ts.
+///
+/// `key` is the primary key because it is what callers hold: the
+/// `org/{orgId}/...` string built by src/lib/storage/keys.ts. Writing the
+/// same key again replaces the row, which is the overwrite behaviour
+/// StorageAdapter.put requires.
+///
+/// `organisationId` is the orgId segment of that key. It carries the
+/// cascade and makes the table readable per tenant; it is not the access
+/// check. That lives in src/app/api/files/[...key]/route.ts, which compares
+/// the key's orgId against the session before it asks for any bytes.
+model StorageObject {
+  key            String   @id
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  contentType    String
+  size           Int
+  data           Bytes
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organisationId])
 }

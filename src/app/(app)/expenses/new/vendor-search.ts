@@ -16,21 +16,13 @@ export const searchVendors = safeAction
         OR: [
           { name: { contains: q, mode: "insensitive" } },
           { pan: { contains: q, mode: "insensitive" } },
-          { gstin: { contains: q, mode: "insensitive" } },
         ],
       },
+      // The picker renders name, PAN and the TDS default; selecting only those
+      // keeps the rest of the vendor row out of the payload entirely.
+      select: { id: true, name: true, pan: true, defaultTdsSection: true },
       orderBy: { name: "asc" },
       take: 10,
     });
-    return {
-      ok: true,
-      vendors: vendors.map((v) => ({
-        id: v.id,
-        name: v.name,
-        pan: v.pan,
-        gstin: v.gstin,
-        defaultTdsSection: v.defaultTdsSection,
-        stateCode: v.stateCode,
-      })),
-    };
+    return { ok: true, vendors };
   });

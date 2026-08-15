@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   panSchema,
-  gstinSchema,
   ifscSchema,
   indianPhoneSchema,
 } from "@/lib/schemas/organisation";
@@ -46,7 +45,6 @@ export const vendorSchema = z
   .object({
     name: z.string().trim().min(1, "Vendor name is required").max(200),
     pan: nullableOptional(panSchema),
-    gstin: nullableOptional(gstinSchema),
     defaultTdsSection: z
       .enum([...TDS_SECTION_KEYS] as [string, ...string[]])
       .nullable()

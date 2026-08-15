@@ -4,7 +4,6 @@ import {
   IconReceiptTax,
   IconFileInvoice,
   IconCalculator,
-  IconBuildingBank,
   IconCalendarStats,
 } from "@tabler/icons-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,13 +14,12 @@ import { HubNav } from "@/components/shell/HubNav";
 export const metadata: Metadata = { title: "Compliance — Rakshana" };
 
 export default async function ComplianceIndex() {
-  const { organisationId } = await requireOrgScope();
+  await requireOrgScope();
 
   // Status counts feed each card
-  const [filings10bd, itFilings, gst, tdsReturns, dueItems] = await Promise.all([
+  const [filings10bd, itFilings, tdsReturns, dueItems] = await Promise.all([
     prisma.form10BDFiling.count(),
     prisma.itFiling.count(),
-    prisma.gstRegistration.findUnique({ where: { organisationId } }),
     prisma.tdsReturn.count(),
     prisma.complianceItem.count({
       where: { status: { in: ["DUE", "OVERDUE"] } },
@@ -44,16 +42,6 @@ export default async function ComplianceIndex() {
       href: "/compliance/income-tax",
       count: itFilings,
       countLabel: "filings",
-    },
-    {
-      title: "GST",
-      summary: gst
-        ? "GSTR-1 (11th) · GSTR-3B (20th) · invoice export"
-        : "Not registered — view setup guide",
-      icon: IconBuildingBank,
-      href: "/compliance/gst",
-      count: gst ? null : 0,
-      countLabel: gst ? "Active" : "Not set up",
     },
     {
       title: "TDS",
@@ -102,15 +90,10 @@ export default async function ComplianceIndex() {
                   <h3 className="font-display text-lg text-ink">{c.title}</h3>
                   <p className="mt-1 text-sm text-ink-muted">{c.summary}</p>
                 </div>
-                {c.count !== null && (
-                  <p className="text-xs text-ink-subtle">
-                    <span className="font-semibold tabular-nums text-ink">{c.count}</span>{" "}
-                    {c.countLabel}
-                  </p>
-                )}
-                {c.count === null && (
-                  <p className="text-xs text-ink-subtle">{c.countLabel}</p>
-                )}
+                <p className="text-xs text-ink-subtle">
+                  <span className="font-semibold tabular-nums text-ink">{c.count}</span>{" "}
+                  {c.countLabel}
+                </p>
               </CardContent>
             </Card>
           </Link>

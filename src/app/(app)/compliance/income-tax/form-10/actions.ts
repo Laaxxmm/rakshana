@@ -4,7 +4,7 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { safeAction } from "@/lib/actions/safe-action";
-import { prismaUnsafe } from "@/lib/db/prisma";
+import { prisma, prismaUnsafe } from "@/lib/db/prisma";
 
 const FY_RE = /^\d{4}-\d{2}$/;
 
@@ -50,9 +50,16 @@ export const closeAccumulationAction = safeAction
       newStatus: z.enum(["UTILISED", "EXPIRED"]),
     }),
   )
-  .action(async ({ parsedInput, ctx }) => {
-    await prismaUnsafe.accumulation.updateMany({
-      where: { id: parsedInput.id, organisationId: ctx.scope.organisationId },
+  .action(async ({ parsedInput }) => {
+    // Accumulation carries organisationId, so the scoped client filters on it:
+    // an id from another trust throws P2025 instead of matching nothing and
+    // reporting success to a caller whose accumulation is still open.
+    const accumulation = await prisma.accumulation.findUniqueOrThrow({
+      where: { id: parsedInput.id },
+      select: { id: true },
+    });
+    await prisma.accumulation.update({
+      where: { id: accumulation.id },
       data: { status: parsedInput.newStatus },
     });
     revalidatePath("/compliance/income-tax/form-10");

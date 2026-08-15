@@ -29,7 +29,6 @@ export default async function OrganisationProfilePage() {
     organisation,
     twelveA,
     eightyG,
-    gst,
     fcra,
     darpan,
     csrOne,
@@ -40,7 +39,6 @@ export default async function OrganisationProfilePage() {
     prismaUnsafe.organisation.findUnique({ where: { id: scope.organisationId } }),
     prisma.twelveARegistration.findFirst(),
     prisma.eightyGRegistration.findFirst(),
-    prisma.gstRegistration.findFirst(),
     prisma.fcraRegistration.findFirst(),
     prisma.darpanRegistration.findFirst(),
     prisma.csrOneRegistration.findFirst(),
@@ -84,12 +82,22 @@ export default async function OrganisationProfilePage() {
           {organisation.charitablePurpose ?? "Charitable trust"} ·{" "}
           {organisation.subCategory ?? "—"}
         </p>
-        <Link
-          href="/settings/account"
-          className="mt-2 inline-block text-sm text-ink-muted underline underline-offset-4 hover:text-ink"
-        >
-          Your account · change password
-        </Link>
+        <div className="mt-2 flex flex-wrap gap-4 text-sm text-ink-muted">
+          <Link
+            href="/settings/account"
+            className="underline underline-offset-4 hover:text-ink"
+          >
+            Your account · change password
+          </Link>
+          {canEdit ? (
+            <Link
+              href="/settings/members"
+              className="underline underline-offset-4 hover:text-ink"
+            >
+              Members · add your accountant
+            </Link>
+          ) : null}
+        </div>
       </header>
 
       <Tabs defaultValue="identity">
@@ -162,7 +170,6 @@ export default async function OrganisationProfilePage() {
         <TabsContent value="tax" className="mt-6 space-y-4">
           <TaxCompliancePanel
             canEdit={canEdit}
-            stateCode={organisation.stateCode ?? null}
             twelveA={
               twelveA
                 ? {
@@ -182,15 +189,6 @@ export default async function OrganisationProfilePage() {
                     validityEndDate: eightyG.validityEndDate?.toISOString().slice(0, 10) ?? "",
                     isProvisional: eightyG.isProvisional,
                     remarks: eightyG.remarks ?? "",
-                  }
-                : null
-            }
-            gst={
-              gst
-                ? {
-                    gstin: gst.gstin,
-                    registrationDate: gst.registrationDate.toISOString().slice(0, 10),
-                    remarks: gst.remarks ?? "",
                   }
                 : null
             }

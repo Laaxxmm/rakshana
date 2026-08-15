@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/table";
 import { ReadOnlyField } from "@/components/patterns/ReadOnlyField";
 import { EditHistory } from "@/components/patterns/EditHistory";
+import { DonationReceiptActions } from "@/components/patterns/DonationReceiptActions";
+import { Decimal } from "decimal.js";
 import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { loadEditHistory } from "@/lib/audit/history";
@@ -54,11 +56,22 @@ export default async function DonorProfilePage({
 
   const isAnon = donor.isAnonymousBucket;
   const canEdit = (scope.role === "OWNER" || scope.role === "ADMIN" || scope.role === "ACCOUNTANT") && !isAnon;
+  // Mirrors the "donation.resendReceipt" permission; the action re-checks it.
+  const canSend =
+    (scope.role === "OWNER" || scope.role === "ADMIN" || scope.role === "ACCOUNTANT") &&
+    !isAnon;
   const canViewNotes = scope.role === "OWNER" || scope.role === "ADMIN";
 
-  const lifetimeAmount = donor.totalDonatedLifetime.toString();
+  const lifetime = new Decimal(donor.totalDonatedLifetime.toString());
   const donationCount = donations.length;
-  const avg = donationCount > 0 ? Number(donor.totalDonatedLifetime) / donationCount : 0;
+  // Money on a screen a trustee quotes, so the average is rounded to the
+  // paisa half-up here rather than left to wherever the division stops. Its
+  // denominator is the rows loaded above — the latest 100, cancelled ones
+  // included — against a lifetime total that is net of cancellations.
+  const avg =
+    donationCount > 0
+      ? lifetime.div(donationCount).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      : new Decimal(0);
   const firstDate = donations[donations.length - 1]?.donationDate ?? null;
 
   return (
@@ -111,10 +124,10 @@ export default async function DonorProfilePage({
       </header>
 
       <div className="grid gap-5 md:grid-cols-4">
-        <KPI label="Lifetime" value={formatINRWithSymbol(lifetimeAmount, { paise: true })} mono />
+        <KPI label="Lifetime" value={formatINRWithSymbol(lifetime, { paise: true })} mono />
         <KPI label="Donations" value={donationCount.toString()} mono />
         <KPI label="First" value={firstDate ? formatIST(firstDate) : "—"} />
-        <KPI label="Average" value={formatINRWithSymbol(String(avg), { paise: true })} mono />
+        <KPI label="Average" value={formatINRWithSymbol(avg, { paise: true })} mono />
       </div>
 
       <Tabs defaultValue="overview">
@@ -212,6 +225,7 @@ export default async function DonorProfilePage({
                       <TableHead>Mode</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Receipt PDF</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -234,6 +248,14 @@ export default async function DonorProfilePage({
                           >
                             {d.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <DonationReceiptActions
+                            donationId={d.id}
+                            donorEmail={donor.email}
+                            donorWhatsApp={donor.whatsapp}
+                            canSend={canSend}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}

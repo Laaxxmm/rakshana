@@ -15,7 +15,12 @@ import { formatINRWithSymbol } from "@/lib/format/inr";
 import { allocateReceiptNumber } from "@/lib/services/receipt-number";
 import { getFinancialYear } from "@/lib/format/date";
 import { generate80GReceipt } from "@/lib/pdf/receipt-80g";
-import { dispatchDonationReceipt } from "@/lib/notify";
+import {
+  dispatchDonationReceipt,
+  ensureReceiptPdf,
+  normalisePhone,
+  renderDonationReceiptWhatsApp,
+} from "@/lib/notify";
 import { storage, storageKey } from "@/lib/storage";
 
 /**
@@ -61,11 +66,14 @@ export const recordDonation = safeAction
     // Persisting on "Save donor" left a zero-lifetime orphan behind every
     // time somebody closed the form without finishing, so the donor list
     // filled up with people who never gave anything.
-    const donor = parsedInput.newDonor
-      ? { ...parsedInput.newDonor, isFcraEligible: false, isAnonymousBucket: false }
-      : await prisma.donor.findUniqueOrThrow({
-          where: { id: parsedInput.donorId },
-        });
+    const existingDonor = parsedInput.donorId
+      ? await prisma.donor.findUniqueOrThrow({ where: { id: parsedInput.donorId } })
+      : null;
+    const donor = existingDonor ?? {
+      ...parsedInput.newDonor!,
+      isFcraEligible: false,
+      isAnonymousBucket: false,
+    };
     if (parsedInput.is80GEligible && donor.donorType === "ANONYMOUS") {
       throw new Error("Anonymous donations are never 80G-eligible.");
     }
@@ -89,21 +97,41 @@ export const recordDonation = safeAction
     }
     const amount = priced ? priced.total : parsedInput.amount;
 
+    // The remaining caller-supplied ids, resolved through the scoped client
+    // before anything is written. Donation carries its own organisationId, so
+    // the row itself lands in the caller's tenant — but the transaction below
+    // runs on `prismaUnsafe`, which the tenancy extension never sees, and
+    // neither column would be filtered even if it did. Unresolved, a foreign
+    // id becomes a donation in this trust's books pointing at another's
+    // project or bank account.
+    const project = parsedInput.projectId
+      ? await prisma.project.findUniqueOrThrow({
+          where: { id: parsedInput.projectId },
+          select: { id: true, isFcra: true },
+        })
+      : null;
+    const bankAccount = parsedInput.bankAccountId
+      ? await prisma.bankAccount.findUniqueOrThrow({
+          where: { id: parsedInput.bankAccountId },
+          select: { id: true },
+        })
+      : null;
+
     // Atomic counter + create.
     const created = await prismaUnsafe.$transaction(async (tx) => {
       // Donor first, same transaction: if anything below fails, the donor
       // is rolled back with it rather than being left stranded.
-      const donorId = parsedInput.newDonor
-        ? (
+      const donorId = existingDonor
+        ? existingDonor.id
+        : (
             await tx.donor.create({
               data: {
-                ...parsedInput.newDonor,
+                ...parsedInput.newDonor!,
                 organisationId: ctx.scope.organisationId,
                 createdById: ctx.scope.userId,
               } as never,
             })
-          ).id
-        : parsedInput.donorId!;
+          ).id;
 
       const allocated = await allocateReceiptNumber(tx, {
         organisationId: ctx.scope.organisationId,
@@ -121,14 +149,14 @@ export const recordDonation = safeAction
           amount: amount.toString(),
           ...(priced ? { lineItems: { create: priced.lines } } : {}),
           mode: parsedInput.mode,
-          bankAccountId: parsedInput.bankAccountId,
+          bankAccountId: bankAccount?.id ?? null,
           paymentRef: parsedInput.paymentRef,
           paymentDate: parsedInput.paymentDate,
           isInKind: parsedInput.mode === "IN_KIND" || parsedInput.isInKind,
           inKindDescription: parsedInput.inKindDescription,
           inKindValuationMethod: parsedInput.inKindValuationMethod,
           purpose: parsedInput.purpose,
-          projectId: parsedInput.projectId,
+          projectId: project?.id ?? null,
           isCsr: parsedInput.isCsr || parsedInput.purpose === "CSR",
           csrCompanyCin: parsedInput.csrCompanyCin,
           isFcra,
@@ -142,10 +170,7 @@ export const recordDonation = safeAction
       // Bump denormalised donor stats in the same tx so the list/profile are always consistent.
       // A donor created moments ago has no prior donation, so its
       // lastDonationDate is simply this one.
-      const priorLast =
-        parsedInput.newDonor || !("lastDonationDate" in donor)
-          ? null
-          : donor.lastDonationDate;
+      const priorLast = existingDonor?.lastDonationDate ?? null;
       await tx.donor.update({
         where: { id: donorId },
         data: {
@@ -165,17 +190,11 @@ export const recordDonation = safeAction
     // FCRA propagation (Phase 4): if this donation is FCRA and the project
     // isn't yet flagged, set Project.isFcra = true. Any future expense
     // tagged to this project will then be restricted to FCRA-only banks.
-    if (isFcra && created.projectId) {
-      const project = await prisma.project.findUnique({
-        where: { id: created.projectId },
-        select: { isFcra: true },
+    if (isFcra && project && !project.isFcra) {
+      await prisma.project.update({
+        where: { id: project.id },
+        data: { isFcra: true },
       });
-      if (project && !project.isFcra) {
-        await prisma.project.update({
-          where: { id: created.projectId },
-          data: { isFcra: true },
-        });
-      }
     }
 
     // Generate PDF + dispatch — outside the transaction. Failure here doesn't
@@ -270,18 +289,72 @@ export const regenerateReceipt = safeAction
   .metadata({ requires: "donation.regenerate" })
   .inputSchema(z.object({ donationId: z.string().min(1) }))
   .action(async ({ parsedInput }) => {
-    await generate80GReceipt(parsedInput.donationId);
+    // Resolve through the scoped client first: `generate80GReceipt` reads and
+    // writes unscoped, so an id from another organisation would otherwise
+    // rewrite that organisation's receipt.
+    const donation = await prisma.donation.findUniqueOrThrow({
+      where: { id: parsedInput.donationId },
+      select: { id: true, donorId: true },
+    });
+    await generate80GReceipt(donation.id);
     revalidatePath("/donations");
+    revalidatePath(`/donors/${donation.donorId}`);
     return { ok: true };
   });
 
+/**
+ * The URL the browser can pull the 80G receipt PDF from, materialising the
+ * file first if storage has lost it. `/api/files` re-checks the organisation
+ * before it streams a byte, so the URL is safe to hand to the client.
+ */
+export const prepareReceiptDownload = safeAction
+  .metadata({ requires: "donation.view" })
+  .inputSchema(z.object({ donationId: z.string().min(1) }))
+  .action(async ({ parsedInput }) => {
+    const donation = await prisma.donation.findUniqueOrThrow({
+      where: { id: parsedInput.donationId },
+      select: { id: true, receiptNumber: true },
+    });
+    const receipt = await ensureReceiptPdf(donation.id);
+    return {
+      url: receipt.url,
+      filename: `${donation.receiptNumber.replace(/\//g, "-")}.pdf`,
+    };
+  });
+
+/**
+ * Send the receipt over every channel the donor has a destination for.
+ *
+ * Throws when nothing was delivered — a donor with no email address on file
+ * is the common case, and an action that returned `ok` there would have the
+ * UI reporting a send that never happened.
+ */
 export const resendReceipt = safeAction
   .metadata({ requires: "donation.resendReceipt" })
   .inputSchema(z.object({ donationId: z.string().min(1) }))
   .action(async ({ parsedInput }) => {
-    await dispatchDonationReceipt(parsedInput.donationId);
+    const donation = await prisma.donation.findUniqueOrThrow({
+      where: { id: parsedInput.donationId },
+      select: { id: true, donorId: true },
+    });
+    const result = await dispatchDonationReceipt(donation.id);
     revalidatePath("/notifications");
-    return { ok: true };
+    revalidatePath(`/donors/${donation.donorId}`);
+
+    // `prepared` is not delivery. Under the click-to-chat driver the message
+    // is a wa.me URL somebody still has to open, so it is reported apart from
+    // `sent` rather than counted as a receipt the donor now holds.
+    if (result.sent.length === 0 && result.prepared.length === 0) {
+      throw new Error(
+        `Nothing was sent. ${[...result.failed, ...result.skipped].join("; ")}`,
+      );
+    }
+    return {
+      ok: true,
+      sent: result.sent,
+      prepared: result.prepared,
+      failed: result.failed,
+    };
   });
 
 /**
@@ -289,6 +362,14 @@ export const resendReceipt = safeAction
  * URL so the client can `window.open()` it. Doesn't mark the donation as
  * sent until the user explicitly clicks through — that's done by
  * `markWhatsAppSent` below.
+ *
+ * The words are `renderDonationReceiptWhatsApp`, the same text the dispatch
+ * layer sends, so a donor reached either way reads the same thing. It promises
+ * no attachment and carries no link, because a `wa.me` URL holds `?text=` and
+ * nothing else, and the only receipt URL this app can mint is `/api/files`,
+ * which answers 401 to anyone without a session in the owning organisation —
+ * which a donor is not. The message names the receipt number and tells the
+ * donor to reply for the PDF; the volunteer attaches it by hand.
  */
 export const prepareWhatsAppLink = safeAction
   .metadata({ requires: "donation.resendReceipt" })
@@ -303,21 +384,21 @@ export const prepareWhatsAppLink = safeAction
         `${donation.donor.name} has no WhatsApp number on file. Add one to the donor profile first.`,
       );
     }
-    const body =
-      `Namaste ${donation.donor.name},\n\n` +
-      `Thank you for your donation of ₹${donation.amount.toString()} to ${donation.organisation.name} on ${donation.donationDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}.\n\n` +
-      `Your 80G receipt no. ${donation.receiptNumber} is attached.${donation.receiptUrl ? `\n\n📎 Download: ${process.env["AUTH_URL"] ?? "http://localhost:3000"}${donation.receiptUrl}` : ""}\n\n` +
-      `For any clarification, reply to this message.\n\n` +
-      `— ${donation.organisation.name}`;
-    const digits = donation.donor.whatsapp.replace(/[^\d]/g, "");
-    const e164 =
-      digits.length === 10
-        ? `91${digits}`
-        : digits.length === 11 && digits.startsWith("0")
-          ? `91${digits.slice(1)}`
-          : digits;
+    const e164 = normalisePhone(donation.donor.whatsapp);
+    if (!e164) {
+      throw new Error(
+        `"${donation.donor.whatsapp}" is not a phone number WhatsApp will accept. Fix it on the donor profile first.`,
+      );
+    }
+    const body = renderDonationReceiptWhatsApp({
+      orgName: donation.organisation.name,
+      donorName: donation.donor.name,
+      amount: donation.amount.toString(),
+      receiptNumber: donation.receiptNumber,
+      donationDate: donation.donationDate,
+    });
     const url = `https://wa.me/${e164}?text=${encodeURIComponent(body)}`;
-    return { url, donorName: donation.donor.name };
+    return { url, donorName: donation.donor.name, whatsapp: donation.donor.whatsapp };
   });
 
 /**

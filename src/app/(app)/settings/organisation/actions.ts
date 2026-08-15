@@ -9,16 +9,17 @@ import {
   darpanSchema,
   eightyGSchema,
   fcraSchema,
-  gstSchema,
   identitySchema,
   orgDocumentMetaSchema,
   twelveASchema,
 } from "@/lib/schemas/organisation";
-import { safeAction } from "@/lib/actions/safe-action";
+import { safeAction, UserFacingError } from "@/lib/actions/safe-action";
 import { prisma, prismaUnsafe } from "@/lib/db/prisma";
+import { setPrimaryBankAccount } from "@/lib/banking/primary";
 import { syncExpiryReminders } from "@/lib/compliance/expiry";
+import { tooLargeMessage } from "@/lib/images/limits";
 import { storage, storageKey } from "@/lib/storage";
-import { validateUpload, type AllowedMime } from "@/lib/storage/validate";
+import { detectMimeByBytes, validateUpload, type AllowedMime } from "@/lib/storage/validate";
 
 const ORG_REVALIDATE = "/settings/organisation";
 
@@ -56,7 +57,7 @@ export const updateAuthorisedSignatory = safeAction
   });
 
 // ===========================================================================
-// Tax compliance (Tab 3) — 12A, 80G, GST
+// Tax compliance (Tab 3) — 12A, 80G
 // ===========================================================================
 
 export const upsertTwelveA = safeAction
@@ -100,19 +101,6 @@ export const upsertEightyG = safeAction
     });
     revalidatePath(ORG_REVALIDATE);
     revalidatePath("/notifications");
-    return { ok: true };
-  });
-
-export const upsertGstRegistration = safeAction
-  .metadata({ requires: "org.settings.edit" })
-  .inputSchema(gstSchema)
-  .action(async ({ parsedInput, ctx }) => {
-    await prisma.gstRegistration.upsert({
-      where: { organisationId: ctx.scope.organisationId },
-      update: parsedInput,
-      create: { ...parsedInput, organisationId: ctx.scope.organisationId },
-    });
-    revalidatePath(ORG_REVALIDATE);
     return { ok: true };
   });
 
@@ -175,13 +163,13 @@ export const upsertCsrOne = safeAction
 export const createBankAccount = safeAction
   .metadata({ requires: "org.settings.edit" })
   .inputSchema(bankAccountSchema)
-  .action(async ({ parsedInput, ctx }) => {
+  .action(async ({ parsedInput }) => {
     const { isPrimary, ...rest } = parsedInput;
     const created = await prisma.bankAccount.create({
       data: { ...rest, isPrimary: false, isActive: true } as never,
     });
     if (isPrimary) {
-      await togglePrimaryTransaction(ctx.scope.organisationId, created.id);
+      await setPrimaryBankAccount(created.id);
     }
     revalidatePath(ORG_REVALIDATE);
     return { ok: true, id: created.id };
@@ -191,14 +179,14 @@ const updateBankInput = bankAccountSchema.extend({ id: z.string().min(1) });
 export const updateBankAccount = safeAction
   .metadata({ requires: "org.settings.edit" })
   .inputSchema(updateBankInput)
-  .action(async ({ parsedInput, ctx }) => {
+  .action(async ({ parsedInput }) => {
     const { id, isPrimary, ...rest } = parsedInput;
-    await prisma.bankAccount.update({
+    const updated = await prisma.bankAccount.update({
       where: { id },
       data: rest,
     });
     if (isPrimary) {
-      await togglePrimaryTransaction(ctx.scope.organisationId, id);
+      await setPrimaryBankAccount(updated.id);
     }
     revalidatePath(ORG_REVALIDATE);
     return { ok: true };
@@ -207,28 +195,15 @@ export const updateBankAccount = safeAction
 export const setPrimaryBank = safeAction
   .metadata({ requires: "org.settings.edit" })
   .inputSchema(z.object({ id: z.string().min(1) }))
-  .action(async ({ parsedInput, ctx }) => {
-    await togglePrimaryTransaction(ctx.scope.organisationId, parsedInput.id);
+  .action(async ({ parsedInput }) => {
+    // The id goes to `setPrimaryBankAccount` unresolved on purpose: it reads
+    // the row back through the scoped `prisma` itself and scopes the demote to
+    // that row's own organisationId, so there is no second lookup here to
+    // disagree with it. `src/lib/banking/primary.ts` carries the reasoning.
+    await setPrimaryBankAccount(parsedInput.id);
     revalidatePath(ORG_REVALIDATE);
     return { ok: true };
   });
-
-/**
- * Demote any current primary and promote `nextPrimaryId`. Single Postgres
- * transaction so a viewer never sees zero or two primaries.
- */
-async function togglePrimaryTransaction(organisationId: string, nextPrimaryId: string) {
-  await prismaUnsafe.$transaction(async (tx) => {
-    await tx.bankAccount.updateMany({
-      where: { organisationId, isPrimary: true, NOT: { id: nextPrimaryId } },
-      data: { isPrimary: false },
-    });
-    await tx.bankAccount.update({
-      where: { id: nextPrimaryId },
-      data: { isPrimary: true },
-    });
-  });
-}
 
 export const deactivateBankAccount = safeAction
   .metadata({ requires: "org.settings.edit" })
@@ -236,14 +211,19 @@ export const deactivateBankAccount = safeAction
   .action(async ({ parsedInput, ctx }) => {
     const activeCount = await prisma.bankAccount.count({ where: { isActive: true } });
     if (activeCount <= 1) {
-      throw new Error("Cannot deactivate the last active bank account.");
+      throw new UserFacingError("Cannot deactivate the last active bank account.");
     }
-    const target = await prisma.bankAccount.findUnique({ where: { id: parsedInput.id } });
-    if (target?.isPrimary) {
-      throw new Error("Mark another account primary before deactivating this one.");
+    // `findUniqueOrThrow`, not `findUnique`: the scoped client returns null for
+    // an id belonging to another trust, and a null would read as "not primary"
+    // and carry that id into the update below.
+    const target = await prisma.bankAccount.findUniqueOrThrow({
+      where: { id: parsedInput.id },
+    });
+    if (target.isPrimary) {
+      throw new UserFacingError("Mark another account primary before deactivating this one.");
     }
     await prisma.bankAccount.update({
-      where: { id: parsedInput.id },
+      where: { id: target.id },
       data: { isActive: false },
     });
     void ctx;
@@ -273,22 +253,79 @@ export const updateBrandingText = safeAction
 
 const ORG_DOC_ALLOWED: AllowedMime[] = ["application/pdf", "image/jpeg", "image/png"];
 const ORG_DOC_MAX = 10 * 1024 * 1024;
+/**
+ * PDF ceiling for a legal document, and the only limit this path applies to
+ * one — nothing here compresses. A bill is a photo of a shop's printout and
+ * `compressBill` re-distils it (`src/lib/images/compress.ts`); a trust deed,
+ * an 80G certificate or a registration certificate is the instrument itself.
+ * Two things break if we run the same ghostscript pass over these: the
+ * registrar's seal and the stamp-paper print soften at /ebook's 150 dpi
+ * resample, and a certificate downloaded from the Income Tax portal carries
+ * the department's digital signature, which does not survive being rewritten.
+ * Since this codebase keeps no pre-compression original, either loss would be
+ * permanent. So the bytes are stored exactly as uploaded and the cap does the
+ * work instead.
+ *
+ * 5 MB, not the 2 MB `PDF_MAX_BYTES` a bill gets: a bill is a page or two,
+ * while a registered trust deed is 30-60 pages of stamp paper, and at the
+ * 200 dpi grayscale a scanner app defaults to that lands around 3-5 MB. At
+ * 2 MB the real deeds would be refused with no compression step left to save
+ * them. Above 5 MB the scan is at photographic DPI or in colour, which is a
+ * setting to change rather than fidelity to keep.
+ */
+const ORG_DOC_PDF_MAX = 5 * 1024 * 1024;
 const BRANDING_ALLOWED: AllowedMime[] = ["image/png", "image/jpeg"];
 const BRANDING_MAX = 2 * 1024 * 1024;
 
-const uploadDocSchema = orgDocumentMetaSchema;
+/**
+ * Magic-byte check plus the PDF ceiling, shared by the two document upload
+ * paths. The bytes pick the limit, never `claimedMime`, so a PDF is measured
+ * against ORG_DOC_PDF_MAX and refused with that number rather than with the
+ * image ceiling it never had.
+ *
+ * Every refusal here is a `UserFacingError`, which `handleServerError` in
+ * `src/lib/actions/safe-action.ts` forwards verbatim in production. A message
+ * naming the file's size and the cap is worth nothing if the uploader is told
+ * "Something went wrong" instead. `tooLargeMessage` is the formatter
+ * `FileUpload` refuses with in the browser, so a file too big for the client
+ * check and a file that slipped past it quote the same two numbers.
+ */
+function checkOrgDocumentUpload(buf: Buffer, claimedMime: string) {
+  if (detectMimeByBytes(buf) === "application/pdf" && buf.length > ORG_DOC_PDF_MAX) {
+    throw new UserFacingError(
+      `${tooLargeMessage("PDF", buf.length, ORG_DOC_PDF_MAX)} Legal documents are stored exactly as uploaded, so re-scan it in grayscale or at 200 DPI — the app will not shrink it for you.`,
+    );
+  }
+  const v = validateUpload(buf, {
+    allowed: ORG_DOC_ALLOWED,
+    maxSize: ORG_DOC_MAX,
+    claimedMime,
+  });
+  if (!v.ok) throw new UserFacingError(v.error);
+  return v;
+}
+
+/**
+ * The document categories a new upload may claim: every value in
+ * `orgDocumentMetaSchema` except `GST`.
+ *
+ * `OrgDocumentCategory` keeps `GST` in Prisma so any row filed under it before
+ * the GST module was dropped still reads back — the detail page prints
+ * `doc.category` verbatim, so such a row still shows a "GST" badge. What is
+ * closed here is minting a new one: `LegalDocsPanel` offers five categories and
+ * `GST` is not among them, but a Server Action is an HTTP endpoint and takes
+ * whatever the payload names. `gst-surface.test.ts` covers the refusal.
+ */
+const uploadDocSchema = orgDocumentMetaSchema.extend({
+  category: orgDocumentMetaSchema.shape.category.exclude(["GST"]),
+});
 
 export const uploadOrgDocument = safeAction
   .metadata({ requires: "org.settings.edit" })
   .inputSchema(uploadDocSchema.extend({ fileBytes: z.string(), filename: z.string(), claimedMime: z.string() }))
   .action(async ({ parsedInput, ctx }) => {
     const buf = Buffer.from(parsedInput.fileBytes, "base64");
-    const v = validateUpload(buf, {
-      allowed: ORG_DOC_ALLOWED,
-      maxSize: ORG_DOC_MAX,
-      claimedMime: parsedInput.claimedMime,
-    });
-    if (!v.ok) throw new Error(v.error);
+    const v = checkOrgDocumentUpload(buf, parsedInput.claimedMime);
 
     // Two-step: create the row to get an id, then upload the file under that id.
     const created = await prisma.orgDocument.create({
@@ -324,15 +361,10 @@ export const replaceOrgDocument = safeAction
   .inputSchema(z.object({ id: z.string().min(1), fileBytes: z.string(), filename: z.string(), claimedMime: z.string() }))
   .action(async ({ parsedInput, ctx }) => {
     const existing = await prisma.orgDocument.findUnique({ where: { id: parsedInput.id } });
-    if (!existing) throw new Error("Document not found.");
+    if (!existing) throw new UserFacingError("Document not found.");
 
     const buf = Buffer.from(parsedInput.fileBytes, "base64");
-    const v = validateUpload(buf, {
-      allowed: ORG_DOC_ALLOWED,
-      maxSize: ORG_DOC_MAX,
-      claimedMime: parsedInput.claimedMime,
-    });
-    if (!v.ok) throw new Error(v.error);
+    const v = checkOrgDocumentUpload(buf, parsedInput.claimedMime);
 
     // Create a new row, link the old one to it (replacedById).
     const next = await prisma.orgDocument.create({
@@ -396,7 +428,9 @@ export const uploadBrandingAsset = safeAction
       maxSize: BRANDING_MAX,
       claimedMime: parsedInput.claimedMime,
     });
-    if (!v.ok) throw new Error(v.error);
+    // Same contract as the document paths: the refusal names the size and the
+    // ceiling, so it must reach the uploader rather than be masked.
+    if (!v.ok) throw new UserFacingError(v.error);
 
     const key =
       parsedInput.target === "logo"

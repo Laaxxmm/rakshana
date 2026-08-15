@@ -3,7 +3,6 @@ import {
   panSchema,
   tanSchema,
   cinSchema,
-  gstinSchema,
   ifscSchema,
   pincodeSchema,
   indianPhoneSchema,
@@ -39,15 +38,6 @@ describe("CIN", () => {
   });
   it("rejects garbage", () => {
     expect(() => cinSchema.parse("not-a-cin")).toThrow();
-  });
-});
-
-describe("GSTIN", () => {
-  it("accepts a canonical GSTIN", () => {
-    expect(gstinSchema.parse("29ABCDE1234F1Z5")).toBe("29ABCDE1234F1Z5");
-  });
-  it("rejects bad checkdigit-slot characters", () => {
-    expect(() => gstinSchema.parse("29ABCDE1234F1Y5")).toThrow();
   });
 });
 

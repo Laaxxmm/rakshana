@@ -22,8 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PDF_MAX_BYTES } from "@/lib/images/limits";
 import { formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
-import { TDS_SECTIONS, TDS_SECTION_KEYS, GST_RATES } from "@/lib/constants/tax";
+import { TDS_SECTIONS, TDS_SECTION_KEYS } from "@/lib/constants/tax";
 import { PAYMENT_MODES } from "@/lib/schemas/expense";
 import { submitExpense, uploadExpenseBill } from "../actions";
 import { fileToActionPayload } from "@/app/(app)/settings/organisation/_upload";
@@ -36,9 +37,7 @@ type Vendor = {
   id: string;
   name: string;
   pan: string | null;
-  gstin: string | null;
   defaultTdsSection: string | null;
-  stateCode: string | null;
 };
 type BankAcct = {
   id: string;
@@ -52,7 +51,6 @@ type Category = {
   name: string;
   parentId: string | null;
   requiresProject: boolean;
-  defaultItcEligible: boolean;
   fcraRestricted: boolean;
 };
 type ProjectItem = { id: string; code: string; name: string };
@@ -65,7 +63,6 @@ const ADVANCED_FIELDS = new Set([
   "projectId",
   "tdsSection",
   "tdsRate",
-  "gstRate",
   "mode",
   "paymentRef",
   "bankAccountId",
@@ -78,7 +75,6 @@ function todayIso(): string {
 }
 
 export function RecordExpenseForm({
-  orgStateCode,
   bankAccounts,
   categories,
   projects,
@@ -86,7 +82,6 @@ export function RecordExpenseForm({
   initialVendor,
   billRequiredThreshold,
 }: {
-  orgStateCode: string | null;
   bankAccounts: BankAcct[];
   categories: Category[];
   projects: ProjectItem[];
@@ -129,10 +124,6 @@ export function RecordExpenseForm({
   const [grossAmount, setGrossAmount] = React.useState("");
   const gross = Number(grossAmount) || 0;
 
-  const [gstApplicable, setGstApplicable] = React.useState(false);
-  const [gstRate, setGstRate] = React.useState<number>(18);
-  const [itcEligible, setItcEligible] = React.useState(true);
-
   // Seeded from the vendor the form opened with, and re-seeded in the vendor
   // picker below. Both used to run through an effect that wrote state on every
   // vendor change, which re-rendered the whole form an extra time.
@@ -171,12 +162,6 @@ export function RecordExpenseForm({
     : 0;
   const tdsAmount = tdsApplicable && tdsRate ? Number(((gross * tdsRate) / 100).toFixed(2)) : 0;
   const netPayable = Number((gross - tdsAmount).toFixed(2));
-
-  const isInterState = !!(vendor?.stateCode && orgStateCode && vendor.stateCode !== orgStateCode);
-  const gstTotal = gstApplicable ? Number(((gross * gstRate) / 100).toFixed(2)) : 0;
-  const cgst = gstApplicable && !isInterState ? Number((gstTotal / 2).toFixed(2)) : 0;
-  const sgst = gstApplicable && !isInterState ? gstTotal - cgst : 0;
-  const igst = gstApplicable && isInterState ? gstTotal : 0;
 
   // ----- Category-driven defaults -----
   const selectedCategory = categories.find((c) => c.id === categoryId);
@@ -252,10 +237,6 @@ export function RecordExpenseForm({
       categoryId: categoryId || null,
       projectId: projectId || null,
       grossAmount,
-      gstApplicable,
-      gstRate: gstApplicable ? gstRate : undefined,
-      isInterState,
-      isItcEligible: itcEligible,
       tdsApplicable,
       tdsSection: tdsApplicable ? (tdsSection as never) : null,
       tdsRate: null,
@@ -293,9 +274,6 @@ export function RecordExpenseForm({
                   ) : (
                     <span className="text-[color:var(--warning)]">no PAN</span>
                   )}
-                  {vendor.gstin ? (
-                    <span className="font-mono text-xs">{vendor.gstin}</span>
-                  ) : null}
                 </p>
               </div>
               <Button
@@ -316,7 +294,7 @@ export function RecordExpenseForm({
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle"
                 />
                 <Input
-                  placeholder="Search vendor by name, PAN, or GSTIN…"
+                  placeholder="Search vendor by name or PAN…"
                   value={vendorQuery}
                   onChange={(e) => onVendorQuery(e.target.value)}
                   onFocus={() => setVendorOpen(true)}
@@ -435,17 +413,7 @@ export function RecordExpenseForm({
 
           <div>
             <Label className="text-xs">Category</Label>
-            <Select
-              value={categoryId}
-              onValueChange={(v) => {
-                if (!v) return;
-                setCategoryId(v);
-                // ITC eligibility follows the category unless the user
-                // overrides it afterwards.
-                const picked = categories.find((c) => c.id === v);
-                if (picked) setItcEligible(picked.defaultItcEligible);
-              }}
-            >
+            <Select value={categoryId} onValueChange={(v) => v && setCategoryId(v)}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Pick a category…" />
               </SelectTrigger>
@@ -473,8 +441,12 @@ export function RecordExpenseForm({
             onSelect={(file) => setBills((prev) => [...prev, file])}
             accept={BILL_ACCEPT}
             maxBytes={BILL_MAX_BYTES}
+            // Same ceiling `compressBill` enforces server-side. Passing it here
+            // is what turns a rejection the user waits out into one they read
+            // the moment they pick the file.
+            maxPdfBytes={PDF_MAX_BYTES}
             pending={uploading}
-            hint="Invoice, delivery note, quotation — attach every page. Photos are compressed on upload."
+            hint="Invoice, delivery note, quotation — attach every page. Photos are compressed on upload; PDFs are compressed when they can be."
           />
           {bills.length > 0 ? (
             <ul className="space-y-1.5">
@@ -517,7 +489,7 @@ export function RecordExpenseForm({
             <summary className="cursor-pointer text-sm text-ink">
               More options
               <span className="ml-2 text-xs text-ink-subtle">
-                date, project, TDS, GST, payment, description
+                date, project, TDS, payment, description
               </span>
             </summary>
 
@@ -589,53 +561,6 @@ export function RecordExpenseForm({
                         </p>
                       </div>
                     </div>
-                  </div>
-                ) : null}
-              </div>
-
-              {/* GST */}
-              <div className="space-y-2 border-t border-border pt-4">
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={gstApplicable} onCheckedChange={(v) => setGstApplicable(!!v)} />
-                  GST applicable
-                </label>
-                {gstApplicable ? (
-                  <div className="space-y-2">
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div>
-                        <Label className="text-xs">Rate</Label>
-                        <Select
-                          value={String(gstRate)}
-                          onValueChange={(v) => v && setGstRate(Number(v))}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {GST_RATES.map((r) => (
-                              <SelectItem key={r} value={String(r)}>
-                                {r}%
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FieldError msg={errors.gstRate} />
-                      </div>
-                      <div className="flex items-end">
-                        <label className="flex items-center gap-2 text-sm">
-                          <Checkbox
-                            checked={itcEligible}
-                            onCheckedChange={(v) => setItcEligible(!!v)}
-                          />
-                          ITC eligible
-                        </label>
-                      </div>
-                    </div>
-                    <p className="text-xs text-ink-muted">
-                      {isInterState
-                        ? `IGST ${formatINRWithSymbol(String(igst), { paise: true })}`
-                        : `CGST ${formatINRWithSymbol(String(cgst), { paise: true })} · SGST ${formatINRWithSymbol(String(sgst), { paise: true })}`}
-                    </p>
                   </div>
                 ) : null}
               </div>

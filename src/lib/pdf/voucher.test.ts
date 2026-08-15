@@ -29,7 +29,13 @@ const TEST_ORG = "test-org-voucher-pdf";
 const TEST_USER = "test-user-voucher-pdf";
 
 async function cleanup() {
-  await prismaUnsafe.expenseApproval.deleteMany({});
+  // ExpenseApproval carries no organisationId of its own, so it is scoped
+  // through its expense. The test files run in parallel against one database,
+  // and an unfiltered delete here would empty a table another suite is
+  // asserting on.
+  await prismaUnsafe.expenseApproval.deleteMany({
+    where: { expense: { organisationId: TEST_ORG } },
+  });
   await prismaUnsafe.tdsEntry.deleteMany({ where: { organisationId: TEST_ORG } });
   await prismaUnsafe.expense.deleteMany({ where: { organisationId: TEST_ORG } });
   await prismaUnsafe.vendor.deleteMany({ where: { organisationId: TEST_ORG } });
@@ -154,16 +160,20 @@ describe("generateVoucherPdf", () => {
     expect(text).toContain("Authorised Signatory");
   });
 
-  it("renders the GST band when applicable", async () => {
+  // GST is no longer a surface of this app (see
+  // src/app/(app)/settings/organisation/gst-surface.test.ts). Rows written
+  // before that still carry a split and a vendor GSTIN; the voucher prints
+  // the money that moved and stays silent about both.
+  it("prints no GST split or GSTIN for a row that carries one", async () => {
     const e = await makeExpense({
       voucherNumber: "VCH/2025-26/0002",
       gross: "10000",
       gst: { cgst: "900", sgst: "900" },
     });
     const text = await pdfText((await generateVoucherPdf(e.id)).buffer);
-    expect(text).toContain("CGST");
-    expect(text).toContain("SGST");
-    expect(text).toContain("900");
+    expect(text).not.toMatch(/CGST|SGST|IGST|GSTIN/);
+    expect(text).not.toContain("29ACMES1234B1Z5");
+    expect(text).toContain("10,000");
   });
 
   it("renders CANCELLED watermark on cancelled expense", async () => {

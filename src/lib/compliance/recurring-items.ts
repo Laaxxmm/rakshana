@@ -14,8 +14,6 @@ import { getFinancialYear } from "@/lib/format/date";
  * (organisationId, category, title, dueDate) — duplicates are dropped.
  *
  * Schedule of items generated:
- *   - GSTR-1   monthly · 11th of following month  (only if GSTIN set)
- *   - GSTR-3B  monthly · 20th of following month  (only if GSTIN set)
  *   - TDS payment monthly · 7th of following month
  *   - TDS return quarterly · 31 Jul / 31 Oct / 31 Jan / 31 May
  *   - Form 10BD annual · 31 May (for the previous FY)
@@ -29,16 +27,14 @@ export type GenerateInput = {
   horizonMonths?: number;
 };
 
+/**
+ * `category` is narrower than Prisma's `ComplianceCategory` — this generator
+ * only emits TDS and IT items. The registration-expiry categories (12A, 80G,
+ * FCRA, DARPAN, GST, INTERNAL) are written by `syncExpiryReminders` in
+ * ./expiry.ts instead.
+ */
 type Item = {
-  category:
-    | "GST"
-    | "TDS"
-    | "IT"
-    | "FCRA"
-    | "TWELVE_A"
-    | "EIGHTY_G"
-    | "DARPAN"
-    | "INTERNAL";
+  category: "TDS" | "IT";
   title: string;
   description?: string;
   dueDate: Date;
@@ -87,9 +83,6 @@ async function buildItems(
 ): Promise<Item[]> {
   const items: Item[] = [];
   const now = new Date();
-  const gstReg = await prismaUnsafe.gstRegistration.findUnique({
-    where: { organisationId },
-  });
 
   // Monthly items — generate `horizonMonths` instances starting NEXT month
   for (let i = 1; i <= horizonMonths; i += 1) {
@@ -97,20 +90,6 @@ async function buildItems(
     const monthLabel = m.toLocaleString("en-IN", { month: "short", year: "numeric" });
     const monthsBack = previousMonthLabel(m);
 
-    if (gstReg) {
-      items.push({
-        category: "GST",
-        title: `GSTR-1 · ${monthsBack}`,
-        description: `Outward supplies return for ${monthsBack}. Due 11 ${monthLabel}.`,
-        dueDate: makeDate(m.getFullYear(), m.getMonth(), 11),
-      });
-      items.push({
-        category: "GST",
-        title: `GSTR-3B · ${monthsBack}`,
-        description: `Summary return for ${monthsBack}. Due 20 ${monthLabel}.`,
-        dueDate: makeDate(m.getFullYear(), m.getMonth(), 20),
-      });
-    }
     items.push({
       category: "TDS",
       title: `TDS payment · ${monthsBack}`,

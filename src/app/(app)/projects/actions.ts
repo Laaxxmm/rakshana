@@ -118,6 +118,10 @@ export const addBudgetHead = safeAction
   .action(async ({ parsedInput }) => {
     // Enforce sum-of-heads ≤ project.totalBudget. If totalBudget is 0 (the
     // form computes total from heads), we accept and update project total.
+    //
+    // The scoped read is also the tenancy proof for the unscoped transaction
+    // below: ProjectBudgetHead has no organisationId, so only the project it
+    // hangs off can establish whose budget is being written.
     const project = await prisma.project.findUniqueOrThrow({
       where: { id: parsedInput.projectId },
       include: { budgetHeads: true },
@@ -132,7 +136,7 @@ export const addBudgetHead = safeAction
     await prismaUnsafe.$transaction(async (tx) => {
       await tx.projectBudgetHead.create({
         data: {
-          projectId: parsedInput.projectId,
+          projectId: project.id,
           name: parsedInput.name,
           budgetedAmount: parsedInput.budgetedAmount.toString(),
         },
@@ -140,12 +144,12 @@ export const addBudgetHead = safeAction
       // If the total wasn't manually set (i.e. it's <= sum), bump it
       if (total.lt(proposed)) {
         await tx.project.update({
-          where: { id: parsedInput.projectId },
+          where: { id: project.id },
           data: { totalBudget: proposed.toString() },
         });
       }
     });
-    revalidatePath(`/projects/${parsedInput.projectId}`);
+    revalidatePath(`/projects/${project.id}`);
     return { ok: true };
   });
 
@@ -198,17 +202,28 @@ export const addGrantAllocation = safeAction
   .metadata({ requires: "project.update" })
   .inputSchema(grantAllocationSchema)
   .action(async ({ parsedInput }) => {
+    // GrantAllocation has no organisationId, so the extension scopes neither
+    // the project it funds nor the donor it credits. Both are resolved through
+    // the scoped client first: a foreign projectId books planned funding into
+    // another organisation's project, and a foreign donorId credits their
+    // donor with money that never reached them.
+    const project = await prisma.project.findUniqueOrThrow({
+      where: { id: parsedInput.projectId },
+    });
+    const donor = parsedInput.donorId
+      ? await prisma.donor.findUniqueOrThrow({ where: { id: parsedInput.donorId } })
+      : null;
     await prisma.grantAllocation.create({
       data: {
-        projectId: parsedInput.projectId,
-        donorId: parsedInput.donorId,
+        projectId: project.id,
+        donorId: donor?.id ?? null,
         description: parsedInput.description,
         amount: parsedInput.amount.toString(),
         receivedOn: parsedInput.receivedOn,
         remarks: parsedInput.remarks,
-      } as never,
+      },
     });
-    revalidatePath(`/projects/${parsedInput.projectId}`);
+    revalidatePath(`/projects/${project.id}`);
     return { ok: true };
   });
 

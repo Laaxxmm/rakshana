@@ -31,6 +31,18 @@ type Doc = {
   expiryDate: string | null;
 };
 
+/**
+ * The ceilings `uploadOrgDocument` enforces in ./actions.ts, repeated because
+ * a "use server" module may only export async functions — the numbers there
+ * cannot be imported. `org-document-upload.test.ts` fails if the two drift.
+ *
+ * Refusing here only saves the round trip: the file is base64'd into the
+ * action body, so an oversized PDF costs the user the whole upload before the
+ * server can tell them it was never going to fit.
+ */
+const ORG_DOC_MAX = 10 * 1024 * 1024;
+const ORG_DOC_PDF_MAX = 5 * 1024 * 1024;
+
 const CATEGORY_OPTIONS = [
   { value: "REGISTRATION_CERT", label: "Registration Certificate" },
   { value: "TRUST_DEED", label: "Trust Deed" },
@@ -204,7 +216,9 @@ function UploadCard() {
           onSelect={handleSelect}
           pending={pending}
           error={error}
-          hint="PDF, JPEG, or PNG · max 10 MB"
+          maxBytes={ORG_DOC_MAX}
+          maxPdfBytes={ORG_DOC_PDF_MAX}
+          hint="Stored exactly as uploaded — nothing here is compressed, so a scan stays as legible as the day it was made."
         />
       </CardContent>
     </Card>

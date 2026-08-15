@@ -32,7 +32,6 @@ export default async function VendorsPage({
           OR: [
             { name: { contains: query, mode: "insensitive" } },
             { pan: { contains: query, mode: "insensitive" } },
-            { gstin: { contains: query, mode: "insensitive" } },
             { phone: { contains: query } },
             { email: { contains: query, mode: "insensitive" } },
           ],
@@ -75,7 +74,7 @@ export default async function VendorsPage({
         <Input
           name="q"
           defaultValue={query ?? ""}
-          placeholder="Search name, PAN, GSTIN, phone, email…"
+          placeholder="Search name, PAN, phone, email…"
           className="pl-8"
         />
       </form>
@@ -99,7 +98,6 @@ export default async function VendorsPage({
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>PAN</TableHead>
-                  <TableHead>GSTIN</TableHead>
                   <TableHead>Default TDS</TableHead>
                   <TableHead>Location</TableHead>
                 </TableRow>
@@ -117,9 +115,6 @@ export default async function VendorsPage({
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {v.pan ?? <span className="text-ink-subtle">—</span>}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {v.gstin ?? <span className="text-ink-subtle">—</span>}
                     </TableCell>
                     <TableCell>
                       {v.defaultTdsSection ? (

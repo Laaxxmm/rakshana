@@ -5,14 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
 import { toast } from "sonner";
-import {
-  IconDownload,
-  IconMail,
-  IconBrandWhatsapp,
-  IconRefresh,
-  IconBan,
-  IconExternalLink,
-} from "@tabler/icons-react";
+import { IconRefresh, IconBan } from "@tabler/icons-react";
 import {
   Sheet,
   SheetContent,
@@ -23,15 +16,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { DonationReceiptActions } from "@/components/patterns/DonationReceiptActions";
 import { formatINRWithSymbol, inrInWords } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
-import {
-  cancelDonation,
-  regenerateReceipt,
-  resendReceipt,
-  prepareWhatsAppLink,
-  markWhatsAppSent,
-} from "./actions";
+import { cancelDonation, regenerateReceipt } from "./actions";
 
 export type DonationDrawerData = {
   id: string;
@@ -44,7 +32,17 @@ export type DonationDrawerData = {
   is80GEligible: boolean;
   status: string;
   cancellationReason: string | null;
-  donor: { id: string; name: string; pan: string | null; isAnonymousBucket: boolean };
+  donor: {
+    id: string;
+    name: string;
+    pan: string | null;
+    isAnonymousBucket: boolean;
+    /** Optional: the list query does not select them, and where they are
+        absent the send buttons name the destination in the result toast
+        instead of on the button. */
+    email?: string | null;
+    whatsapp?: string | null;
+  };
 };
 
 export function DonationDrawer({
@@ -70,23 +68,6 @@ export function DonationDrawer({
     onSuccess: () => toast.success("Receipt regenerated"),
     onError: ({ error }) => toast.error(error.serverError ?? "Could not regenerate"),
   });
-  const resend = useAction(resendReceipt, {
-    onSuccess: () => toast.success("Receipt emailed"),
-    onError: ({ error }) => toast.error(error.serverError ?? "Could not resend"),
-  });
-  const prepWA = useAction(prepareWhatsAppLink, {
-    onSuccess: ({ data }) => {
-      if (!data?.url) return;
-      // Open the wa.me URL in a new tab. The user reviews the message,
-      // adds the receipt attachment manually, and taps Send in WhatsApp.
-      window.open(data.url, "_blank", "noopener,noreferrer");
-      toast.success(`WhatsApp opening for ${data.donorName}…`);
-      // Audit-log the dispatch
-      void markWA.execute({ donationId: donation.id });
-    },
-    onError: ({ error }) => toast.error(error.serverError ?? "Could not build link"),
-  });
-  const markWA = useAction(markWhatsAppSent, {});
 
   function dismiss(v: boolean) {
     setOpen(v);
@@ -177,50 +158,16 @@ export function DonationDrawer({
           )}
         </div>
 
-        {/* Footer actions — uniform 2-column grid so buttons never overlap regardless of drawer width */}
+        {/* Footer actions. Download goes through the server action rather than
+            `receiptUrl`, so a receipt whose file storage has lost is rebuilt
+            instead of 404ing. The preview above is still the stored URL. */}
         <div className="border-t border-border bg-surface px-6 py-4 space-y-3">
-          {donation.receiptUrl ? (
-            <div className="grid grid-cols-2 gap-2">
-              <a
-                href={donation.receiptUrl}
-                download
-                className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-surface px-3 text-sm hover:bg-surface-sunken"
-              >
-                <IconDownload size={14} />
-                Download
-              </a>
-              <a
-                href={donation.receiptUrl}
-                target="_blank"
-                rel="noopener"
-                className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-surface px-3 text-sm hover:bg-surface-sunken"
-              >
-                <IconExternalLink size={14} />
-                Open
-              </a>
-            </div>
-          ) : null}
+          <DonationReceiptActions
+            donationId={donation.id}
+            donorEmail={donation.donor.email}
+            donorWhatsApp={donation.donor.whatsapp}
+          />
           <div className="grid grid-cols-2 gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full"
-              onClick={() => resend.execute({ donationId: donation.id })}
-              disabled={resend.isExecuting}
-            >
-              <IconMail size={14} />
-              Email
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full"
-              onClick={() => prepWA.execute({ donationId: donation.id })}
-              disabled={prepWA.isExecuting}
-            >
-              <IconBrandWhatsapp size={14} />
-              WhatsApp
-            </Button>
             <Button
               size="sm"
               variant="ghost"

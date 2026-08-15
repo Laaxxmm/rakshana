@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ReadOnlyField } from "@/components/patterns/ReadOnlyField";
+import { Decimal } from "decimal.js";
 import { prisma } from "@/lib/db/prisma";
 import { requireOrgScope } from "@/lib/auth/scope";
 import { roleHasPermission } from "@/lib/auth/permissions";
@@ -59,7 +60,10 @@ export default async function BeneficiaryProfilePage({
 
   const canViewNotes = roleHasPermission(scope.role, "beneficiary.idProof.view");
   const canEdit = roleHasPermission(scope.role, "beneficiary.update");
-  const totalDisbursed = b.disbursements.reduce((acc, d) => acc + Number(d.value), 0);
+  const totalDisbursed = b.disbursements.reduce(
+    (acc, d) => acc.plus(d.value.toString()),
+    new Decimal(0),
+  );
 
   return (
     <div className="space-y-5">
@@ -98,7 +102,7 @@ export default async function BeneficiaryProfilePage({
       </header>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <KPI label="Total disbursed" value={formatINRWithSymbol(String(totalDisbursed), { paise: true })} />
+        <KPI label="Total disbursed" value={formatINRWithSymbol(totalDisbursed, { paise: true })} />
         <KPI label="Disbursement count" value={String(b.disbursements.length)} />
         <KPI label="Projects enrolled" value={String(b.enrolments.length)} />
       </div>

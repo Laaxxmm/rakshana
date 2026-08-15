@@ -23,7 +23,6 @@ import {
 type Values = {
   name: string;
   pan: string;
-  gstin: string;
   defaultTdsSection: string;
   addressLine1: string;
   addressLine2: string;
@@ -91,7 +90,6 @@ export function VendorForm({
           <CardContent className="grid gap-5 md:grid-cols-2">
             <EditableField label="Name" required error={errors.name?.message} {...register("name")} />
             <EditableField label="PAN" hint="10 chars (ABCDE1234F)" error={errors.pan?.message} {...register("pan")} />
-            <EditableField label="GSTIN" hint="15 chars" error={errors.gstin?.message} {...register("gstin")} />
             <EditableFieldShell label="Default TDS section">
               <Controller
                 control={control}

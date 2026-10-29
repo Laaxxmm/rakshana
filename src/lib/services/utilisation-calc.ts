@@ -54,7 +54,7 @@ function toDec(v: Decimal | string | number): Decimal {
   return new Decimal(String(v));
 }
 
-const EARMARKED = new Set<Donation["purpose"]>(["PROJECT_SPECIFIC", "CSR", "EARMARKED_GRANT"]);
+export const EARMARKED = new Set<Donation["purpose"]>(["PROJECT_SPECIFIC", "CSR", "EARMARKED_GRANT"]);
 
 export function computeUtilisationShare(input: UtilisationInput): UtilisationResult {
   const totalExpenses = toDec(input.totalExpenses);

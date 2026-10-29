@@ -231,3 +231,40 @@ changed. 266 -> 267 tests.
 exceljs does not. Downgrading the library that writes every audit export to
 dodge an unreachable bug is the worse risk. Revisit when exceljs ships a
 release on a patched uuid.
+
+## Roadmap A1 — restricted (specific) funds
+
+Unspent earmarked money (PROJECT_SPECIFIC / CSR / EARMARKED_GRANT donations
+tagged to a project) was counted inside the General Fund on the Balance
+Sheet, so it read as free surplus.
+
+- `src/lib/services/restricted-funds.ts` — per-project received / spent /
+  balance (floored at 0; overspend stays in the general fund). Reuses the
+  `EARMARKED` set, now exported from `utilisation-calc.ts`.
+- Balance Sheet: one "Restricted fund — <project>" liability line per
+  positive balance, carved out of the General Fund. Totals unchanged by
+  construction. Header comment updated.
+- Projects list: "Restricted" column (hidden below sm). Project page:
+  restricted balance under "Total funding".
+- Tests: new Balance Sheet fixture (restricted line, overspent project with no
+  line, unattached earmarked donation left in GF, GF 4.1L, totals 14.6L).
+  `mobile-lists.test.tsx` prisma mock now also exports `prismaUnsafe`.
+
+### Known, not fixed
+
+- `Accumulation` has no `projectId`. If a Sec 11(2) accumulation is ever set
+  aside for a specific project, that amount is carved out twice. Waiting on CA.
+- Capital bought from restricted money reduces the restricted balance with no
+  "capital asset fund" counterpart line.
+- Local env: `.env` points at `localhost:5433`, compose maps Rakshana's
+  Postgres to 5432, and 5433 is another project's DB on this machine. Tests
+  ran with a temporary `.env.test.local` on 5432 (see GUARDRAILS §7).
+
+### Result
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npm test` | 83 files, 1006 tests, all passed |
+| `npx eslint <touched files>` | clean |
+| `next build` | not run this round |

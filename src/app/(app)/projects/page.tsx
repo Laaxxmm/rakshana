@@ -16,6 +16,8 @@ import { prisma } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
 import { HubNav } from "@/components/shell/HubNav";
+import { requireOrgScope } from "@/lib/auth/scope";
+import { getRestrictedFunds } from "@/lib/services/restricted-funds";
 
 export const metadata: Metadata = { title: "Projects — Rakshana" };
 
@@ -51,6 +53,14 @@ export default async function ProjectsPage({
       e.projectId,
       new Decimal(e._sum.grossAmount?.toString() ?? "0"),
     ]),
+  );
+  // Unspent earmarked money per project — the figure the Balance Sheet
+  // carries as that project's restricted fund.
+  const { organisationId } = await requireOrgScope();
+  const restrictedByProject = new Map(
+    projectIds.length
+      ? (await getRestrictedFunds({ organisationId, projectIds })).map((f) => [f.projectId, f.balance])
+      : [],
   );
 
   return (
@@ -124,6 +134,7 @@ export default async function ProjectsPage({
                   <TableHead className="hidden sm:table-cell">Period</TableHead>
                   <TableHead className="hidden text-right sm:table-cell">Budget</TableHead>
                   <TableHead className="text-right">Spent</TableHead>
+                  <TableHead className="hidden text-right sm:table-cell">Restricted</TableHead>
                   <TableHead className="hidden sm:table-cell">Utilisation</TableHead>
                 </TableRow>
               </TableHeader>
@@ -186,6 +197,9 @@ export default async function ProjectsPage({
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {formatINRWithSymbol(spent, { paise: false })}
+                      </TableCell>
+                      <TableCell className="hidden text-right font-mono tabular-nums sm:table-cell">
+                        {formatINRWithSymbol(restrictedByProject.get(p.id) ?? new Decimal(0), { paise: false })}
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
                         <div className="flex items-center gap-2">

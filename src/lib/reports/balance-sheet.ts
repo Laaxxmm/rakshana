@@ -3,6 +3,7 @@ import { Decimal } from "decimal.js";
 import { prismaUnsafe } from "@/lib/db/prisma";
 import { getFinancialYearRange } from "@/lib/format/date";
 import { formatINRWithSymbol } from "@/lib/format/inr";
+import { getRestrictedFunds } from "@/lib/services/restricted-funds";
 import type { ReportGenerator, ComputedReport, ValidationResult } from "./shared/types";
 import { buildReportWorkbook } from "./shared/excel-renderer";
 import {
@@ -22,7 +23,8 @@ import {
  *   LIABILITIES                                    ASSETS
  *   - Corpus Fund                                  - Fixed Assets (capital expenses, gross)
  *   - General Fund (accumulated surplus)           - Cash + Bank balances
- *   - Earmarked grants (active accumulations)      - Donations recognised, not yet in bank
+ *   - Restricted funds (one per project)           - Donations recognised, not yet in bank
+ *   - Earmarked grants (active accumulations)
  *   - Opening funds brought forward                - Payments made ahead of the voucher date
  *   - Sundry creditors (approved, unpaid)
  *   - Donations banked ahead of recognition
@@ -30,8 +32,10 @@ import {
  * Numbers come from:
  *   - Corpus Fund = sum of all CORPUS donations to date (regardless of FY)
  *   - General Fund = income recognised up to the as-of date, less revenue
- *     expenditure to that date, less the earmarked accumulations carved out
- *     onto their own line below
+ *     expenditure to that date, less the earmarked accumulations and the
+ *     restricted fund balances carved out onto their own lines below
+ *   - Restricted funds = per project, earmarked donations less project
+ *     spend, floored at zero (services/restricted-funds.ts)
  *   - Earmarked = sum of ACTIVE accumulations (Form 10 / Sec 11(2))
  *   - Opening funds = the fund counterpart of BankAccount.openingBalance,
  *     which is money the trust already held when the books were opened
@@ -178,7 +182,23 @@ export const balanceSheetReport: ReportGenerator<BalanceSheetParams, BalanceShee
     // earmarked accumulations carved onto their own line below, and
     // everything the books hold from before the year in question.
     const revenueExpToDate = totalExpToDate.minus(fixedAssetsGross);
-    const generalFund = totalIncomeToDate.minus(revenueExpToDate).minus(earmarked);
+
+    // Unspent earmarked money is owed to its purpose, not free surplus, so
+    // each project's restricted balance comes out of the general fund onto a
+    // line of its own. Both are drawn from the same income and expense
+    // populations (see restricted-funds.ts), so the carve-out only moves
+    // money between liability lines and the totals do not change.
+    const restrictedFunds = (
+      await getRestrictedFunds({ organisationId: params.organisationId, asOf })
+    ).filter((f) => f.balance.gt(0));
+    const restrictedTotal = restrictedFunds.reduce(
+      (acc, f) => acc.plus(f.balance),
+      new Decimal(0),
+    );
+    const generalFund = totalIncomeToDate
+      .minus(revenueExpToDate)
+      .minus(earmarked)
+      .minus(restrictedTotal);
 
     // --- Assets ---
 
@@ -265,6 +285,7 @@ export const balanceSheetReport: ReportGenerator<BalanceSheetParams, BalanceShee
 
     const totalLiabilities = corpusFund
       .plus(generalFund)
+      .plus(restrictedTotal)
       .plus(earmarked)
       .plus(openingBalance)
       .plus(sundryCreditors)
@@ -285,6 +306,10 @@ export const balanceSheetReport: ReportGenerator<BalanceSheetParams, BalanceShee
         liabilities: [
           { label: "Corpus Fund", amount: corpusFund.toFixed(2) },
           { label: "General Fund (accumulated surplus)", amount: generalFund.toFixed(2) },
+          ...restrictedFunds.map((f) => ({
+            label: `Restricted fund — ${f.projectName} (unspent earmarked)`,
+            amount: f.balance.toFixed(2),
+          })),
           { label: "Earmarked grants (Sec 11(2) accumulations)", amount: earmarked.toFixed(2) },
           { label: "Opening funds brought forward", amount: openingBalance.toFixed(2) },
           { label: "Sundry creditors (approved, unpaid)", amount: sundryCreditors.toFixed(2) },

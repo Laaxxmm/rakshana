@@ -17,6 +17,7 @@ import { Decimal } from "decimal.js";
 import { prisma, prismaUnsafe } from "@/lib/db/prisma";
 import { formatINRWithSymbol } from "@/lib/format/inr";
 import { formatIST } from "@/lib/format/date";
+import { getRestrictedFunds } from "@/lib/services/restricted-funds";
 import { GenerateUtilCertButton } from "./GenerateUtilCertButton";
 
 export const metadata: Metadata = { title: "Project — Rakshana" };
@@ -83,6 +84,12 @@ export default async function ProjectProfilePage({
   );
   const remainingBudget = new Decimal(project.totalBudget.toString()).minus(totalSpent);
   const fundingGap = new Decimal(project.totalBudget.toString()).minus(totalFunding);
+  // Same figure the Balance Sheet carries as this project's restricted fund.
+  const [restricted] = await getRestrictedFunds({
+    organisationId: project.organisationId,
+    projectIds: [id],
+  });
+  const restrictedBalance = restricted?.balance ?? new Decimal(0);
 
   // Donors who gave project-specific contributions to THIS project, with
   // totals — fed into the "Generate certificate" picker.
@@ -161,7 +168,11 @@ export default async function ProjectProfilePage({
 
       <div className="grid gap-4 md:grid-cols-4">
         <KPI label="Total budget" value={formatINRWithSymbol(project.totalBudget.toString(), { paise: false })} />
-        <KPI label="Total funding" value={formatINRWithSymbol(totalFunding.toString(), { paise: false })} />
+        <KPI
+          label="Total funding"
+          value={formatINRWithSymbol(totalFunding.toString(), { paise: false })}
+          sub={`Restricted, unspent ${formatINRWithSymbol(restrictedBalance, { paise: false })}`}
+        />
         <KPI label="Total spent" value={formatINRWithSymbol(totalSpent.toString(), { paise: false })} />
         <KPI
           label="Remaining budget"

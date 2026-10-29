@@ -20,6 +20,7 @@ const { incomeExpenditureReport } = await import("./income-expenditure");
 const { balanceSheetReport } = await import("./balance-sheet");
 const { auditTrailReport } = await import("./audit-trail");
 const { beneficiaryImpactReport } = await import("./beneficiary-impact");
+const { getRestrictedFunds } = await import("@/lib/services/restricted-funds");
 
 const TEST_ORG = "test-org-reports";
 const OTHER_ORG = "test-org-reports-other";
@@ -504,6 +505,78 @@ describe("Balance Sheet report", () => {
     expect(figure(assets, "not yet in bank")).toBe("200000.00");
     expect(computed.data.totalLiabilities).toBe("1500000.00");
     expect(computed.data.totalAssets).toBe("1500000.00");
+  });
+
+  it("carves each project's unspent earmarked money out of the general fund", async () => {
+    await seedKnownScenario(TEST_ORG);
+    const donor = await prismaUnsafe.donor.create({
+      data: { organisationId: TEST_ORG, donorType: "INDIVIDUAL", name: "Earmarker" },
+    });
+    const building = await prismaUnsafe.project.create({
+      data: { organisationId: TEST_ORG, code: "RF-01", name: "School Building" },
+    });
+    const overspent = await prismaUnsafe.project.create({
+      data: { organisationId: TEST_ORG, code: "RF-02", name: "Overspent Drive" },
+    });
+    const give = (n: number, amount: string, purpose: "PROJECT_SPECIFIC" | "CSR" | "EARMARKED_GRANT", projectId?: string) =>
+      prismaUnsafe.donation.create({
+        data: {
+          organisationId: TEST_ORG,
+          donorId: donor.id,
+          receiptNumber: `RKS/${FY}/RF${n}`,
+          donationDate: new Date("2024-07-01"),
+          paymentDate: new Date("2024-07-01"),
+          amount,
+          mode: "NEFT",
+          purpose,
+          projectId,
+          is80GEligible: true,
+          status: "RECEIVED",
+        },
+      });
+    const spend = (n: number, amount: string, projectId: string) =>
+      prismaUnsafe.expense.create({
+        data: {
+          organisationId: TEST_ORG,
+          voucherNumber: `VCH/${FY}/RF${n}`,
+          expenseDate: new Date("2024-08-01"),
+          paidAt: new Date("2024-08-01"),
+          projectId,
+          grossAmount: amount,
+          tdsAmount: "0",
+          netPayable: amount,
+          mode: "NEFT",
+          status: "PAID",
+        },
+      });
+    await give(1, "200000", "PROJECT_SPECIFIC", building.id);
+    await spend(1, "50000", building.id);
+    // spent past what was earmarked: the excess came out of the general pool
+    await give(2, "100000", "CSR", overspent.id);
+    await spend(2, "120000", overspent.id);
+    // earmarked but not attached to a project, so it cannot be attributed
+    await give(3, "30000", "EARMARKED_GRANT");
+
+    const funds = await getRestrictedFunds({ organisationId: TEST_ORG });
+    expect(funds.map((f) => [f.projectName, f.received.toFixed(2), f.spent.toFixed(2), f.balance.toFixed(2)])).toEqual([
+      ["Overspent Drive", "100000.00", "120000.00", "0.00"],
+      ["School Building", "200000.00", "50000.00", "150000.00"],
+    ]);
+
+    const computed = await balanceSheetReport.computeData({
+      organisationId: TEST_ORG,
+      financialYear: FY,
+    });
+    const { liabilities, assets } = computed.data;
+    expect(figure(liabilities, "Restricted fund — School Building")).toBe("150000.00");
+    // nil balances are not disclosed
+    expect(figure(liabilities, "Overspent Drive")).toBeUndefined();
+    // 13.3L income − 7.7L revenue spend = 5.6L, less the 1.5L restricted
+    expect(figure(liabilities, "General Fund")).toBe("410000.00");
+    // 1L opening + 18.3L banked − 7.7L paid
+    expect(figure(assets, "Cash + Bank")).toBe("1160000.00");
+    expect(computed.data.totalLiabilities).toBe("1460000.00");
+    expect(computed.data.totalAssets).toBe("1460000.00");
   });
 });
 

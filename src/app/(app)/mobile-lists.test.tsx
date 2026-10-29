@@ -32,9 +32,11 @@ const DATE = formatIST(DAY);
 type Query = (args?: Record<string, unknown>) => Promise<unknown>;
 const db: Record<string, Record<string, Query>> = {};
 
-vi.mock("@/lib/db/prisma", () => ({
-  prisma: new Proxy({}, { get: (_target, model) => db[String(model)] }),
-}));
+vi.mock("@/lib/db/prisma", () => {
+  const client = new Proxy({}, { get: (_target, model) => db[String(model)] });
+  // Services such as restricted-funds read through the unscoped client.
+  return { prisma: client, prismaUnsafe: client };
+});
 vi.mock("next/navigation", () => ({ usePathname: () => "/donations" }));
 vi.mock("@/auth", () => ({ auth: async () => null }));
 vi.mock("@/lib/auth/scope", () => ({
@@ -234,6 +236,8 @@ const screens: Record<string, Screen> = {
       db["expense"] = {
         groupBy: async () => [{ projectId: "pr1", _sum: { grossAmount: "200000.00" } }],
       };
+      // no earmarked receipts, so no restricted balance
+      db["donation"] = { groupBy: async () => [] };
       return renderToStaticMarkup(await ProjectsPage({ searchParams: Promise.resolve({}) }));
     },
   },

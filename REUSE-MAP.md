@@ -293,6 +293,16 @@ written against the wrong client.
   `src/lib/services/utilisation-calc.ts`. Pure — handles earmarked
   (PROJECT_SPECIFIC / CSR / EARMARKED_GRANT) vs pooled (CORPUS /
   GENERAL) donations. Conservation: sum of donor shares ≤ totalExpenses.
+- `EARMARKED` (exported Set) — the one definition of which purposes are
+  earmarked. Reuse it; don't re-list the purposes.
+
+## Restricted funds (Roadmap A1)
+
+- `getRestrictedFunds({ organisationId, asOf?, projectIds? })` in
+  `src/lib/services/restricted-funds.ts`. Per project: earmarked cash
+  donations received, APPROVED/PAID project spend, balance floored at 0.
+  Used by the Balance Sheet (carve-out from General Fund), the projects list
+  and the project page. Unscoped client with explicit `organisationId`.
 
 ## Project workflow + FCRA propagation (Phase 4)
 
